@@ -59,6 +59,10 @@ textarea {
     flex-direction: row;
 }
 
+#left-panel {
+    margin-right: 20px;
+}
+
 #main-canvas {
     display: block;
     margin: 0 auto;
@@ -103,4 +107,8 @@ textarea {
     font-family: monospace;
     text-align: right;
     font-weight: 500;
+}
+
+#credits {
+    font-size: 16px;
 }
