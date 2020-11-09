@@ -1,114 +1,136 @@
 * {
-    box-sizing: border-box;
+  box-sizing: border-box;
 }
 
 body {
-    min-width: 800px;
+  margin: 0;
+  padding-top: 20px;
+  background-color: rgb(102 107 111);
+  color: white;
 }
 
 button {
-    padding: 10px;
-    background-color: orange;
-    border: none;
-    font-size: 16pt;
-    border-radius: 5px;
+  padding: 10px;
+  background-color: #f38805;
+  color: white;
+  border: none;
+  font-size: 16pt;
+  border-radius: 5px;
 }
 
 button:hover {
-    transform: translate(0px, -1px);
+  transform: translate(0px, -1px);
 }
 
 button:focus {
-    outline: none;
+  outline: none;
 }
 
 button:active {
-    transform: translate(0px, 1px);
-    outline: none;
+  transform: translate(0px, 1px);
+  outline: none;
 }
 
-input, textarea {
-    padding-left: 10px;
+input,
+textarea {
+  padding-left: 10px;
 }
 
 textarea {
-    padding-top: 5px;
+  padding-top: 5px;
 }
 
 .standard {
-    font-family: monospace;
-    font-weight: bold;
-    text-align: center;
-}
-
-#score {
-    font-size: 24px;
-    display: inline-block;
+  font-family: "Changa", sans-serif;
+  font-weight: 400;
+  text-align: center;
 }
 
 #credits {
-    font-family: monospace;
+  font-family: monospace;
 }
 
 #header-text {
-    min-height: 24px
+  min-height: 44px;
+  margin-bottom: 20px;
+  font-size: 24px;
 }
 
-#main-panel {
-    display: flex;
-    flex-direction: row;
+#main-area {
+  display: flex;
+  flex-grow: true;
+  flex-direction: row;
+  align-items: flex-start;
 }
 
 #left-panel {
-    margin-right: 20px;
+  position: relative;
+  background-color: #4d5d6f;
+  padding: 40px 60px 40px 20px;
+  width: 300px;
+  transition: margin-left 0.4s ease-in-out;
+  /* border: 1px solid black; */
+  /* border-radius: 0 10px 10px 0; */
+  /* box-shadow: 0 0 5px black; */
+}
+
+#left-panel-toggle-open {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 40px;
+}
+
+#right-panel {
+  display: block;
+  margin: 0 auto;
+  background: #cacaca;
+  padding: 30px;
 }
 
 #main-canvas {
-    display: block;
-    margin: 0 auto;
-    image-rendering: pixelated;
+  image-rendering: pixelated;
+  margin: auto;
 }
 
 #dummy-canvas {
-    display: none;
+  display: none;
 }
 
 #game-options-form {
-    margin: 0;
+  margin: 0;
 }
 
 #game-options-form > * {
-    margin-bottom: 5px;
+  margin-bottom: 5px;
 }
 
 #level-select {
-    font-size: 18px;
-    height: 40px;
-    width: auto;
-    border-radius: 3px;
-    border: solid 1px gray;
+  font-size: 18px;
+  height: 40px;
+  width: auto;
+  border-radius: 3px;
+  border: solid 1px gray;
 }
 
 #piece-sequence {
-    width: 100%;
-    border-radius: 3px;
+  width: 100%;
+  border-radius: 3px;
 }
 #paste-area {
-    width: 100%;
-    border-radius: 3px;
+  width: 100%;
+  border-radius: 3px;
 }
 
 #pasted-image {
-    display: none;
+  display: none;
 }
 
-#debug, #stats, #how-to {
-    font-size: 20px;
-    font-family: monospace;
-    text-align: right;
-    font-weight: 500;
-}
-
-#credits {
-    font-size: 16px;
+#debug,
+#stats,
+#how-to {
+  font-size: 20px;
+  font-family: monospace;
+  text-align: right;
+  font-weight: 500;
 }
