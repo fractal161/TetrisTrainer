@@ -37,7 +37,7 @@ AIPlayer.prototype.placeCurrentPiece = async function (
     .replace(/2|3/g, "1");
   console.log(board);
   const result = await fetch(
-    `http://127.0.0.1:3000/sync-nb/${encodedBoard}/${piece.id}/${nextPiece.id}/${level}/${lines}/0/0/0/0`
+    `http://127.0.0.1:3000/sync-nb/${encodedBoard}/${piece.id}/${nextPiece.id}/${level}/${lines}/0/0/0/0/X..../false`
   );
   const endTime = performance.now();
   this.totalApiCalls++;
@@ -50,7 +50,7 @@ AIPlayer.prototype.placeCurrentPiece = async function (
     );
   }
 
-  const resultArray = (await result.text()).split(",");
+  const resultArray = (await result.text()).split(/,|\|/g);
   const bestRotationIndex = parseInt(resultArray[0]);
   const bestXOffset = parseInt(resultArray[1]);
 
@@ -64,7 +64,7 @@ AIPlayer.prototype.placeCurrentPiece = async function (
   // Shift the piece, with intermittent sleeps to slow it down.
   // Note that the piece range it's allowed to attempt is hardcoded in hang_checker.js, so its actual DAS speed is irrelevant
   const targetX = 3 + bestXOffset;
-  const sleepDelay = level >= 29 ? 20 : 70;
+  const sleepDelay = level >= 29 ? 20 : 50;
   if (targetX > piece.getX()) {
     const numShifts = targetX - piece.getX();
     for (let i = 0; i < numShifts; i++) {

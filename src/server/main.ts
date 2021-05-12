@@ -2,6 +2,7 @@ const evaluator = require("./evaluator");
 const aiModeManager = require("./ai_mode_manager");
 const boardHelper = require("./board_helper");
 const { SEARCH_BREADTH, modifyParamsForAiMode } = require("./params");
+import { getPossibleMoves } from "./move_search";
 import { EVALUATION_BREADTH } from "./params";
 import * as utils from "./utils";
 import { POSSIBLE_NEXT_PIECES } from "./utils";
@@ -17,16 +18,21 @@ import { POSSIBLE_NEXT_PIECES } from "./utils";
  *        placements for all 7 theoretical next pieces that could occur.
  */
 
-function getBestMove(
+export function getBestMove(
   searchState: SearchState,
   shouldLog: boolean,
-  initialAiParams: AiParams,
+  initialAiParams: InitialAiParams,
   paramMods: ParamMods,
+  inputFrameTimeline: string,
   searchDepth: number,
   hypotheticalSearchDepth: number
 ) {
   // Get the AI mode (e.g. digging, scoring)
-  let aiParams = addTapLimitsToAiMode(initialAiParams, searchState.level);
+  let aiParams = addTapInfoToAiParams(
+    initialAiParams,
+    searchState.level,
+    inputFrameTimeline
+  );
   const aiMode = aiModeManager.getAiMode(
     searchState.board,
     searchState.lines,
@@ -76,16 +82,15 @@ function searchConcretely(
     shouldLog,
     aiParams,
     aiMode,
-    EVALUATION_BREADTH[3]
+    EVALUATION_BREADTH[1]
   );
 
   // If the search depth was 1, we're done
   if (searchDepth == 1) {
     if (shouldLog) {
       depth1Possibilities.forEach((x) => {
-        console.log(
-          `${x.placement} : surface ${x.surfaceArray}, holes ${x.numHoles}, score ${x.evalScore}`
-        );
+        console.log(x.placement);
+        console.log(x.inputSequence);
         console.log(x.evalExplanation);
       });
     }
@@ -94,9 +99,13 @@ function searchConcretely(
 
   if (shouldLog) {
     console.log("Num promising moves:", depth1Possibilities.length);
+    console.log("Promising moves");
     console.log(
-      "Promising moves",
-      depth1Possibilities.map((x) => [x.placement, x.fastEvalScore, x.evalExplanation])
+      depth1Possibilities.map((x) => [
+        x.placement,
+        x.fastEvalScore || "no fast eval",
+        x.evalExplanation,
+      ])
     );
     console.log("\n\n--------------------------------------------");
   }
@@ -123,16 +132,15 @@ function searchConcretely(
 }
 
 /** Normalizes a weight vector to an average value of 1 per cell (in-place). */
-function normalize(weightVector){
+function normalize(weightVector) {
   const normalizedWeights = [];
   const len = weightVector.length;
-  let total = weightVector.reduce((x,y) => x + y);
-  for (let i = 0; i < len; i++){
-    normalizedWeights.push(weightVector[i] * len / total);
+  let total = weightVector.reduce((x, y) => x + y);
+  for (let i = 0; i < len; i++) {
+    normalizedWeights.push((weightVector[i] * len) / total);
   }
   return normalizedWeights;
 }
-
 
 function searchHypothetically(
   possibilityChains: Array<PossibilityChain>,
@@ -167,13 +175,15 @@ function searchHypothetically(
         }`
       );
       console.log(
-        `Expected Value: ${result.expectedValue}, Original Value: ${chain.totalValue}`
+        `Expected Value: ${result.expectedValue.toFixed(
+          2
+        )}, Original Value: ${chain.totalValue.toFixed(2)}`
       );
       for (const hypotheticalBestMove of result.bestMoves) {
         console.log(
           `If ${hypotheticalBestMove.hypotheticalPiece}, do ${
             hypotheticalBestMove.placement
-          }. Value: ${hypotheticalBestMove.totalValue.toFixed(2)}`
+          }. Value: ${(hypotheticalBestMove.totalValue || 0).toFixed(2)}`
         );
         // console.log(hypotheticalBestMove.evalExplanation);
       }
@@ -181,7 +191,7 @@ function searchHypothetically(
     hypotheticalResults;
   }
 
-  return hypotheticalResults.map(x => x.possibilityChain);
+  return hypotheticalResults.map((x) => x.possibilityChain);
 }
 
 /**
@@ -196,22 +206,23 @@ function searchDepth1(
   evalBreadth: number
 ): Array<PossibilityChain> {
   // Get the possible moves
-  let possibilityList = boardHelper.getPossibleMoves(
+  let possibilityList = getPossibleMoves(
     searchState.board,
     searchState.currentPieceId,
     searchState.level,
     searchState.existingXOffset,
     searchState.existingYOffset,
-    searchState.firstShiftDelay,
+    searchState.framesAlreadyElapsed,
+    aiParams.INPUT_FRAME_TIMELINE,
     searchState.existingRotation,
-    aiParams.TAP_ARR,
-    /* shouldLog= */ false && shouldLog
+    searchState.canFirstFrameShift,
+    false
   );
 
   // If there are more moves than we plan on evaluating, do a fast-eval and prune based on that
   if (possibilityList.length > evalBreadth) {
     for (const possibility of possibilityList) {
-      const [value, explanation] = evaluator.fastEval(
+      const [value, _] = evaluator.fastEval(
         possibility,
         searchState.nextPieceId,
         searchState.level,
@@ -228,7 +239,7 @@ function searchDepth1(
   }
 
   // Evaluate each promising possibility and convert it to a 1-chain
-  for (const possibility of possibilityList) {
+  for (const possibility of possibilityList as Array<PossibilityChain>) {
     // Evaluate
     const [value, explanation] = evaluator.getValueOfPossibility(
       possibility,
@@ -243,7 +254,7 @@ function searchDepth1(
     possibility.evalExplanation = explanation as string;
 
     // Convert to a 1-chain
-    possibility.totalScore = value as number;
+    possibility.totalValue = value as number;
     possibility.partialValue = evaluator.getLineClearValue(
       possibility.numLinesCleared,
       aiParams
@@ -255,7 +266,9 @@ function searchDepth1(
     );
   }
   // Sort by value
-  return possibilityList.sort((x, y) => y.evalScore - x.evalScore);
+  return possibilityList.sort((x, y) => y.evalScore - x.evalScore) as Array<
+    PossibilityChain
+  >;
 }
 
 function searchDepth2(
@@ -331,7 +344,9 @@ function searchDepthNPlusOne(
           aiMode,
           EVALUATION_BREADTH[3]
         )[0] || null;
-      bestMove.totalValue = bestMove.evalScore + totalPartialValue;
+      if (bestMove !== null) {
+        bestMove.totalValue = bestMove.evalScore + totalPartialValue;
+      }
       bestMovesList.push({
         hypotheticalPiece,
         ...bestMove,
@@ -388,31 +403,34 @@ function getSearchStateAfter(
     nextPieceId: null,
     level: levelAfter,
     lines: prevSearchState.lines + possibility.numLinesCleared,
+    framesAlreadyElapsed: 0,
     existingXOffset: 0,
     existingYOffset: 0,
-    firstShiftDelay: aiParams.FIRST_TAP_DELAY,
     existingRotation: 0,
+    canFirstFrameShift: false,
   };
 }
 
-export function addTapLimitsToAiMode(
-  aiParams: AiParams,
-  level: number
+export function addTapInfoToAiParams(
+  initialAiParams: InitialAiParams,
+  level: number,
+  inputFrameTimeline: string
 ): AiParams {
-  const newParams = JSON.parse(JSON.stringify(aiParams));
+  const newParams = JSON.parse(JSON.stringify(initialAiParams));
+  // Save the input frame timeline
+  newParams.INPUT_FRAME_TIMELINE = inputFrameTimeline;
+
   // Look up the 4/5 tap height for the current and maybe next level
   newParams.MAX_5_TAP_LOOKUP = {};
   newParams.MAX_5_TAP_LOOKUP[level] = boardHelper.calculateTapHeight(
     level,
-    newParams.TAP_ARR,
-    newParams.FIRST_TAP_DELAY,
+    inputFrameTimeline,
     5
   );
   newParams.MAX_4_TAP_LOOKUP = {};
   newParams.MAX_4_TAP_LOOKUP[level] = boardHelper.calculateTapHeight(
     level,
-    newParams.TAP_ARR,
-    newParams.FIRST_TAP_DELAY,
+    inputFrameTimeline,
     4
   );
   const nextLevel = level + 1;
@@ -420,18 +438,14 @@ export function addTapLimitsToAiMode(
     // Also look up the tap ranges for the next level, in case we evaluate possibilites after the transition
     newParams.MAX_5_TAP_LOOKUP[nextLevel] = boardHelper.calculateTapHeight(
       nextLevel,
-      newParams.TAP_ARR,
-      newParams.FIRST_TAP_DELAY,
+      inputFrameTimeline,
       5
     );
     newParams.MAX_4_TAP_LOOKUP[nextLevel] = boardHelper.calculateTapHeight(
       nextLevel,
-      newParams.TAP_ARR,
-      newParams.FIRST_TAP_DELAY,
+      inputFrameTimeline,
       4
     );
   }
   return newParams;
 }
-
-module.exports = { getBestMove };
