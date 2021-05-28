@@ -11,6 +11,7 @@ import {
   GetGravity,
   getSurfaceArrayAndHoles,
   logBoard,
+  NUM_ROW,
   shouldPerformInputsThisFrame,
 } from "./utils";
 
@@ -21,7 +22,7 @@ import {
  */
 export function getPossibleMoves(
   startingBoard: Board,
-  currentPieceId: string,
+  currentPieceId: PieceId,
   level: number,
   existingXOffset: number,
   existingYOffset: number,
@@ -45,9 +46,9 @@ export function getPossibleMoves(
   const initialX = 3 + existingXOffset;
   const initialY = (currentPieceId == "I" ? -2 : -1) + existingYOffset;
   const gravity = GetGravity(level);
-  const rotationsList = PIECE_LOOKUP[currentPieceId][0];
+  const rotationsList = PIECE_LOOKUP[currentPieceId][0] as Array<PieceArray>;
 
-  const simParams = {
+  const simParams : SimParams = {
     board: startingBoard,
     initialX,
     initialY,
@@ -55,6 +56,7 @@ export function getPossibleMoves(
     gravity,
     inputFrameTimeline,
     rotationsList,
+    pieceId: currentPieceId,
     existingRotation,
     canFirstFrameShift,
   };
@@ -135,7 +137,6 @@ function exploreLegalPlacementsUntilLock(
   for (const simState of legalPlacementSimStates) {
     const currentRotationPiece =
       simParams.rotationsList[simState.rotationIndex];
-    let y = simState.y;
     const inputSequence = generateInputSequence(
       _modulus(simState.rotationIndex - simParams.existingRotation, 4),
       simState.x - simParams.initialX,
@@ -144,12 +145,6 @@ function exploreLegalPlacementsUntilLock(
     );
     let inputSequenceWithWait = inputSequence;
 
-    // Move the piece down until it hits the stack
-    while (
-      !pieceCollision(simParams.board, simState.x, y + 1, currentRotationPiece)
-    ) {
-      y++;
-    }
 
     let startedLookingForTuckSpins = false;
     let highestRegisteredY = -1; // Tracks the Y values already registered to avoid duplicates
@@ -178,6 +173,9 @@ function exploreLegalPlacementsUntilLock(
         highestRegisteredY = simState.y;
       }
 
+      // This kind of acts like an "else", since the paths where an input happened this frame branch off into the dfs file
+      inputSequenceWithWait += ".";
+
       if (isGravityFrame) {
         if (
           pieceCollision(
@@ -197,7 +195,7 @@ function exploreLegalPlacementsUntilLock(
             getPossibilityFromSimState(
               simState,
               simParams,
-              inputSequence,
+              inputSequenceWithWait,
               /* inputCost= */ 0
             )
           );
@@ -206,7 +204,6 @@ function exploreLegalPlacementsUntilLock(
         simState.y++;
       }
 
-      inputSequenceWithWait += ".";
       simState.frameIndex += 1;
       simState.arrFrameIndex += 1;
     }
@@ -230,6 +227,25 @@ export function getPossibilityFromSimState(
   );
   let [surfaceArray, numHoles, holeCells] = getSurfaceArrayAndHoles(boardAfter);
 
+  const numEntryDelayFrames = calculateEntryDelayFrames(simState, simParams);
+
+  // Add pre-lineclear ARE frames to the input sequence
+  for (let i = 0; i < numEntryDelayFrames - 5; i++){
+    inputSequence += "*";
+  }
+
+  // Add line clear frames to the input sequence
+  if (numLinesCleared > 0){
+    for (let i = 0; i < 17; i++){
+      inputSequence += "^"
+    }
+  }
+
+  // Add post-lineclear ARE frames to the input sequence
+  for (let i = 0; i < 5; i++){
+    inputSequence += "*";
+  }
+
   // Add the possibility to the list
   return {
     placement: [simState.rotationIndex, simState.x - simParams.initialX],
@@ -241,6 +257,14 @@ export function getPossibilityFromSimState(
     boardAfter,
     inputCost,
   };
+}
+
+/** Calculate the ARE as a function of the "lock height" (the height of the highest cell in the piece)  */
+function calculateEntryDelayFrames(simState: SimState, simParams: SimParams) : number{
+  const startingY = simParams.pieceId === "I" ? -2 : -1;
+  const yOffset = simState.y - startingY;
+  const lockHeight = NUM_ROW - yOffset;
+  return Math.min(18, 10 + Math.floor((lockHeight + 1) / 4) * 2);
 }
 
 /**
@@ -424,6 +448,7 @@ export function canDoPlacement(
     framesAlreadyElapsed: 0,
     gravity,
     rotationsList,
+    pieceId: pieceId as PieceId,
     existingRotation: 0,
     inputFrameTimeline,
     canFirstFrameShift: false, // This function refers to doing a placement from the start, not starting from an adjustment or anything
