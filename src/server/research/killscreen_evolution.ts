@@ -1,7 +1,7 @@
-import { calculateTapHeight, getLeftSurface } from "./board_helper";
-import { getEmptyBoard, simulateGame } from "./lite_game_simulator";
-import { addTapInfoToAiParams } from "./main";
-import { getParamMods, getParams } from "./params";
+import { calculateTapHeight, getLeftSurface } from "../board_helper";
+import { getEmptyBoard, simulateGame } from "../lite_game_simulator";
+import { addTapInfoToAiParams } from "../main";
+import { getParamMods, getParams } from "../params";
 
 const INPUT_TIMELINE = "X....X...X...";
 const MAX_4_TAP_HEIGHT = calculateTapHeight(29, INPUT_TIMELINE, 4);
@@ -35,7 +35,11 @@ function valueIterate(successors: SuccessorMap): Object {
 
   // Converge ranks
   let totalDelta = Number.MAX_SAFE_INTEGER;
-  for (let iteration = 0; iteration < MAX_VALUE_ITERATIONS && totalDelta > 1; iteration++) {
+  for (
+    let iteration = 0;
+    iteration < MAX_VALUE_ITERATIONS && totalDelta > 1;
+    iteration++
+  ) {
     totalDelta = 0;
 
     const newValues = {};

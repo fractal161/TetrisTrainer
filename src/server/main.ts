@@ -26,8 +26,8 @@ export function getBestMove(
   inputFrameTimeline: string,
   searchDepth: number,
   hypotheticalSearchDepth: number
-) {
-  // Get the AI mode (e.g. digging, scoring)
+): PossibilityChain {
+  // Add additional info to the base params (tap speed, dig/scoring mode, etc.)
   let aiParams = addTapInfoToAiParams(
     initialAiParams,
     searchState.level,
@@ -37,10 +37,41 @@ export function getBestMove(
     searchState.board,
     searchState.lines,
     searchState.level,
+    searchState.currentPieceId,
     aiParams
   );
   aiParams = modifyParamsForAiMode(aiParams, aiMode, paramMods);
 
+  const concretePossibilities = searchConcretely(
+    searchState,
+    shouldLog,
+    aiParams,
+    aiMode,
+    searchDepth
+  );
+
+  if (hypotheticalSearchDepth == 0) {
+    return concretePossibilities[0] || null;
+  } else {
+    const sortedPossibilities = searchHypothetically(
+      concretePossibilities,
+      aiParams,
+      aiMode,
+      hypotheticalSearchDepth,
+      shouldLog
+    );
+    return sortedPossibilities[0] || null;
+  }
+}
+
+export function evaluateFirstPlacements(
+  searchState,
+  shouldLog,
+  aiParams,
+  aiMode,
+  searchDepth,
+  hypotheticalSearchDepth
+) {
   const concretePossibilities = searchConcretely(
     searchState,
     shouldLog,
@@ -103,6 +134,7 @@ function searchConcretely(
     console.log(
       depth1Possibilities.map((x) => [
         x.placement,
+        x.inputSequence,
         x.fastEvalScore || "no fast eval",
         x.evalExplanation,
       ])
@@ -153,9 +185,18 @@ function searchHypothetically(
     throw new Error("Unsupported hypothetical search depth");
   }
 
-  // const weightVector = [2.5, 1.5, 1, 0.5, 0.5, 0.5, 0.5];
-  const weightVector = normalize([2, 2, 1, 1, 1, 1, 2]);
-  // const weightVector = [0.5, 0.5, 0.5, 0.5, 1, 1.5, 2.5];
+  let weightVector;
+  switch (aiMode) {
+    case AiMode.DIG:
+    case AiMode.NEAR_KILLSCREEN:
+      weightVector = normalize([2, 2, 1, 1, 1, 1, 2]);
+      break;
+    case AiMode.STANDARD:
+    case AiMode.KILLSCREEN:
+    case AiMode.KILLSCREEN_RIGHT_WELL:
+      weightVector = normalize([1.5, 1, 1, 1, 1, 1, 1.5]);
+  }
+
   const hypotheticalResults = searchDepthNPlusOne(
     possibilityChains,
     aiParams,
@@ -344,12 +385,13 @@ function searchDepthNPlusOne(
           aiMode,
           EVALUATION_BREADTH[3]
         )[0] || null;
-      if (bestMove !== null) {
-        bestMove.totalValue = bestMove.evalScore + totalPartialValue;
-      }
       bestMovesList.push({
-        hypotheticalPiece,
         ...bestMove,
+        hypotheticalPiece,
+        totalValue:
+          bestMove === null
+            ? aiParams.DEAD_COEF
+            : bestMove.evalScore + totalPartialValue,
       });
     }
 
@@ -434,18 +476,22 @@ export function addTapInfoToAiParams(
     4
   );
   const nextLevel = level + 1;
-  if (utils.GetGravity(nextLevel) !== utils.GetGravity(level)) {
-    // Also look up the tap ranges for the next level, in case we evaluate possibilites after the transition
-    newParams.MAX_5_TAP_LOOKUP[nextLevel] = boardHelper.calculateTapHeight(
-      nextLevel,
-      inputFrameTimeline,
-      5
-    );
-    newParams.MAX_4_TAP_LOOKUP[nextLevel] = boardHelper.calculateTapHeight(
-      nextLevel,
-      inputFrameTimeline,
-      4
-    );
+  // Also look up the tap ranges for the next level, in case we evaluate possibilites after the transition
+  newParams.MAX_5_TAP_LOOKUP[nextLevel] = boardHelper.calculateTapHeight(
+    nextLevel,
+    inputFrameTimeline,
+    5
+  );
+  newParams.MAX_4_TAP_LOOKUP[nextLevel] = boardHelper.calculateTapHeight(
+    nextLevel,
+    inputFrameTimeline,
+    4
+  );
+
+  // Add burn quota on 28 if not already present
+  if (level == 28) {
+    //...
   }
+
   return newParams;
 }

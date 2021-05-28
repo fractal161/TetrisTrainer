@@ -1,6 +1,6 @@
 local http = require("socket.http")
 local os = require("os")
-require "socket"
+local socket = require "socket"
 
 TIMELINE_2_HZ = "X.............................";
 TIMELINE_6_HZ = "X........";
@@ -15,18 +15,19 @@ TIMEILNE_14_HZ = "X....X...X...X...";
 TIMELINE_15_HZ = "X...";
 TIMELINE_20_HZ = "X..";
 TIMELINE_30_HZ = "X.";
+TIMELINE_KYROS = "...X.X.X.X.X.X.X.X.X"
 
 -- Config constants
 SHOULD_ADJUST = true
-REACTION_TIME_FRAMES = 15
-INPUT_TIMELINE = TIMELINE_13_5_HZ;
-SHOULD_RECORD_GAMES = true
+REACTION_TIME_FRAMES = 25
+INPUT_TIMELINE = TIMELINE_12_HZ;
+SHOULD_RECORD_GAMES = false
 MOVIE_PATH = "C:\\Users\\Greg\\Desktop\\VODs\\" -- Where to store the fm2 VODS (absolute path)
 
 function resetGameScopedVariables()
   isFirstPiece = true;
-  gameState = 0
-  playstate = 0
+  metaGameState = 0
+  gamePhase = 0
   numLines = 0
   waitingOnAsyncRequest = false
   gameOver = false
@@ -37,7 +38,7 @@ resetGameScopedVariables();
 
 -- Reset all variables whose values are tied to one piece
 function resetPieceScopedVars()
-  adjustmentApiResult = nil
+  adjustmentLookup = {}
   frameIndex = 0
   arrFrameIndex = 0
   inputSequence = ""
@@ -46,8 +47,8 @@ function resetPieceScopedVars()
   stateForNextPiece = {board=nil, level=nil, lines=nil}
 end
 
---[[--------------------------------------- 
------------- Helper Functions ------------- 
+--[[---------------------------------------
+------------ Helper Functions -------------
 ---------------------------------------]]--
 
 -- Translate internal Piece IDs to actual piece types (T: 2 J: 7 Z: 9 O: 10 S: 11 L: 15 I: 18)
@@ -130,74 +131,40 @@ function getInputForFrame(index)
   return string.sub(inputSequence, index + 1, index + 1)
 end
 
--- Based on the current placement, predict exactly where the piece will be when it's time to adjust it
-function predictPieceOffsetAtAdjustmentTime()
-  local inputsPossibleByAdjTime = 0
-  local inputsUsedByAdjTime = 0
-  offsetXAtAdjustmentTime = 0
-  rotationAtAdjustmentTime = 0
+--[[------------------------------------
+----------- HTTP Requests --------------
+------------------------------------]]--
 
-  if isFirstPiece then
-    canFirstFrameShiftAtAdjustmentTime = true
-    offsetYAtAdjustmentTime = 0
-    return
+function parsePrecompute(precomputeResult)
+  local rows = splitString(precomputeResult, "\n")
+
+  -- Parse the initial placement and queue up those inputs
+  if REACTION_TIME_FRAMES > 0 then
+    local defaultPlacement = splitString(rows[1], ":")[2]
+    if defaultPlacement == null then
+      print("GAME OVER")
+      gameOver = true
+      return
+    end
+    print("Initial placement: " .. defaultPlacement)
+    calculateInputs(defaultPlacement, false)
+    parseGameStateFromResponse(defaultPlacement)
   end
 
-  -- Loop through the frames until adjustment time and track the input sequence, gravity, and possible number of shifts
-  for i = 0, REACTION_TIME_FRAMES-1 do
-    if (isInputFrame(i)) then
-      inputsPossibleByAdjTime = inputsPossibleByAdjTime + 1
-    end
-    
-    -- Track shifts
-    local thisFrameStr = getInputForFrame(i)
-    -- print("thisFrameStr " .. thisFrameStr)
-    if thisFrameStr == "L" or thisFrameStr == "E" or thisFrameStr == "F" then
-      offsetXAtAdjustmentTime = offsetXAtAdjustmentTime - 1
-    elseif thisFrameStr == "R" or thisFrameStr == "I" or thisFrameStr == "G" then
-      offsetXAtAdjustmentTime = offsetXAtAdjustmentTime + 1
-    end
-
-    -- Track rotations
-    if thisFrameStr == "A" or thisFrameStr == "E" or thisFrameStr == "I" then
-      rotationAtAdjustmentTime = rotationAtAdjustmentTime + 1
-    elseif thisFrameStr == "B" or thisFrameStr == "F" or thisFrameStr == "G" then
-      rotationAtAdjustmentTime = rotationAtAdjustmentTime - 1
-    end
-
-    -- Track inputs used
-    if thisFrameStr ~= "." then
-      inputsUsedByAdjTime = inputsUsedByAdjTime + 1
-    end
+  -- Store all the adjustments in a lookup table
+  for i = 2,8 do
+    local resultSplit = splitString(rows[i], ":")
+    local pieceStr = resultSplit[1]
+    adjustmentLookup[pieceStr] = resultSplit[2]
   end
-
-  -- Correct the rotation to be within the modulus
-  local curPieceStr = orientToPiece[pcur]
-  local numOrientations = 1
-  if (curPieceStr == "T" or curPieceStr == "J" or curPieceStr == "L") then
-    numOrientations = 4
-  elseif curPieceStr == "I" or curPieceStr == "Z" or curPieceStr == "S" then
-    numOrientations = 2
-  end
-  rotationAtAdjustmentTime = (rotationAtAdjustmentTime + numOrientations) % numOrientations -- Modulus -1 to 3, etc.
-  
-  offsetYAtAdjustmentTime = math.floor((REACTION_TIME_FRAMES) / getGravity(level))
-
-  -- Calculate if it can first-frame shift at adjustment time
-  canFirstFrameShiftAtAdjustmentTime = inputsUsedByAdjTime < inputsPossibleByAdjTime
 end
 
 
---[[------------------------------------ 
------------ HTTP Requests -------------- 
-------------------------------------]]--
 
 -- Make a request that will kick off a longer calculation. Subsequent frames will ping the server again for the result.
 function requestAdjustmentAsync()
-
-
   -- Format URL arguments
-  local requestStr = "http://localhost:3000/async-nb/" .. getEncodedBoard()
+  local requestStr = "http://localhost:8080/async-nb/" .. getEncodedBoard()
   requestStr = requestStr .. "/" .. orientToPiece[pcur] .. "/" .. orientToPiece[pnext] .. "/" .. level .. "/" .. numLines
   requestStr = requestStr .. "/" .. offsetXAtAdjustmentTime .. "/" .. offsetYAtAdjustmentTime .. "/" .. rotationAtAdjustmentTime
   requestStr = requestStr .. "/" .. REACTION_TIME_FRAMES .. "/" .. INPUT_TIMELINE .. "/" .. tostring(canFirstFrameShiftAtAdjustmentTime)
@@ -211,34 +178,37 @@ function requestAdjustmentAsync()
 end
 
 -- Synchronously get a placement from the server, with no next piece data
-function requestPlacementAsyncNoNextBox()
+function requestPrecompute()
+  print("requestprecompute")
   -- Format URL arguments
   if stateForNextPiece == nil or stateForNextPiece.board == nil
         or stateForNextPiece.lines == nil or stateForNextPiece.level == nil then
+    print("GAME OVER")
     gameOver = true
     return
   end
-  local requestStr = "http://localhost:3000/async-nnb/" .. stateForNextPiece.board
+  local requestStr = "http://localhost:8080/precompute/" .. stateForNextPiece.board
   local requestStr = requestStr .. "/" .. orientToPiece[pnext] .. "/null/" .. stateForNextPiece.level
-  local requestStr = requestStr .. "/" .. stateForNextPiece.lines .. "/0/0/0/0/" .. INPUT_TIMELINE .. "/false"
+  local requestStr = requestStr .. "/" .. stateForNextPiece.lines .. "/0/0/0/"
+  local requestStr = requestStr .. REACTION_TIME_FRAMES .. "/" .. INPUT_TIMELINE .. "/false" -- use the 'framesAlreadyElapsed' param to communicate reaction time
 
   local response = makeHttpRequest(requestStr)
   if response.code ~= 200 then
     error("Request not acknowledged by backend")
   end
-  waitingOnAsyncRequest = true; 
+  waitingOnAsyncRequest = true;
   return response.data
 end
 
 -- Check if the async computation has finished, and if so make the adjustment based on it
-function checkForAsyncResult()
-  local response = makeHttpRequest("http://localhost:3000/async-result")
+function fetchAsyncResult()
+  local response = makeHttpRequest("http://localhost:8080/async-result")
 
   -- Only use the response if the server indicated that it sent the async result
   if response.code ~= 200 then
     error("RECEIVED BAD RESPONSE CODE:" .. response.code)
     return nil
-  end 
+  end
   waitingOnAsyncRequest = false;
   return response.data
 end
@@ -263,13 +233,17 @@ function makeHttpRequest(requestUrl)
 end
 
 function parseGameStateFromResponse(apiResult)
+  if apiResult == "No legal moves" or apiResult == nil then
+    return
+  end
+
   local split = splitString(apiResult, ",|\|")
-  
+
   if split[4] ~= nil and split[5] ~= nil and split[6] ~= nil then
-    stateForNextPiece = { 
-      board=split[4], 
-      level=split[5], 
-      lines=split[6] 
+    stateForNextPiece = {
+      board=split[4],
+      level=split[5],
+      lines=split[6]
     }
   end
 end
@@ -286,12 +260,12 @@ function splitString (inputstr, sep)
   return t
 end
 
---[[------------------------------------ 
----------- Handling Input -------------- 
+--[[------------------------------------
+---------- Handling Input --------------
 ------------------------------------]]--
 
 function calculateInputs(apiResult, isAdjustment)
-  if apiResult == "No legal moves" then
+  if apiResult == "No legal moves" or apiResult == nil then
     return
   end
 
@@ -375,8 +349,8 @@ function executeInputs()
   end
 end
 
---[[------------------------------------ 
-------- Performance Monitoring  -------- 
+--[[------------------------------------
+------- Performance Monitoring  --------
 ------------------------------------]]--
 
 -- Monitors the number of frames run per real clock second
@@ -399,35 +373,94 @@ function trackAndLogFps()
   end
 end
 
+--[[------------------------------------
+------------ Game Events  --------------
+------------------------------------]]--
 
---[[------------------------------------ 
----------- Main Game Loop  ------------- 
+function onFirstFrameOfNewPiece()
+  -- Read values from memory
+  local function bcdToDecimal(a)
+    return 10 * (a - (a % 16)) / 16 + (a % 16)
+  end
+  pcur = memory.readbyte(0x0042) -- Stores current/next pieces before they even appear onscreen
+  pnext = memory.readbyte(0x0019)
+  numLines = bcdToDecimal(memory.readbyte(0x0051)) * 100 + bcdToDecimal(memory.readbyte(0x0050))
+  level = memory.readbyte(0x0044)
+
+  resetPieceScopedVars()
+
+  print("--------------------")
+  print(orientToPiece[pcur])
+
+  -- If it's the first piece, make an 'adjustment' to do the initial placement
+  if isFirstPiece then
+    offsetXAtAdjustmentTime = 0
+    rotationAtAdjustmentTime = 0
+    canFirstFrameShiftAtAdjustmentTime = true
+    offsetYAtAdjustmentTime = 0
+    requestAdjustmentAsync()
+
+  elseif not gameOver and waitingOnAsyncRequest then
+    -- Check in on the result of the previous async request for the inital placement
+    local apiResult = fetchAsyncResult()
+    parsePrecompute(apiResult)
+  end
+end
+
+
+-- Called when the piece is locked.
+--   NOTE: THE BOARD/LEVEL/LINES ARE NOT UPDATED.  That's why there's the whole
+--   shenanigans of tracking the state from the last API request
+function asPieceLocks()
+  print("Piece locked" .. emu.framecount() .. "  " .. frameIndex)
+
+  -- Once the first piece locks, it's not the first piece anymore
+  isFirstPiece = false
+
+  -- If it hasn't already, queue up the next precompute
+  if not waitingOnAsyncRequest then
+    requestPrecompute();
+  end
+end
+
+
+-- Called when reaction time has passed and it's time to perform the adjustment
+function processAdjustment()
+  if (adjustmentLookup == {}) then
+    error("No adjustment lookup found")
+  end
+  print("Time for adjustment " .. frameIndex .. ", " .. arrFrameIndex)
+
+  if isFirstPiece then
+    local adjustmentApiResult = fetchAsyncResult()
+    calculateInputs(adjustmentApiResult, true)
+    parseGameStateFromResponse(adjustmentApiResult)
+  else
+    local adjustmentApiResult = adjustmentLookup[orientToPiece[pnext]]
+    calculateInputs(adjustmentApiResult, true)
+    parseGameStateFromResponse(adjustmentApiResult)
+  end
+end
+
+
+--[[------------------------------------
+---------- Main Game Loop  -------------
 ------------------------------------]]--
 
 function runGameFrame()
-  local gamePhase = memory.readbyte(0x0048)
+  local gamePhaseLastFrame = gamePhase
+  gamePhase = memory.readbyte(0x0048)
   if(gamePhase == 1) then
-    if(playstate ~= 1) then
+    if(gamePhaseLastFrame ~= 1) then
       -- First active frame for piece. This is where board state/input sequence is calculated
       onFirstFrameOfNewPiece()
-
-      -- Initiate a request for good adjustments
-      if SHOULD_ADJUST then
-        predictPieceOffsetAtAdjustmentTime()
-        requestAdjustmentAsync()
-      end
-    elseif SHOULD_ADJUST and frameIndex == REACTION_TIME_FRAMES and waitingOnAsyncRequest then
-      -- Once reaction time is over, fetch the async result        
-      adjustmentApiResult = checkForAsyncResult()
-      if adjustmentApiResult ~= nil then
-        print(adjustmentApiResult)
-        print("Time for adjustment " .. frameIndex .. ", " .. arrFrameIndex)
-        calculateInputs(adjustmentApiResult, true)
-        parseGameStateFromResponse(adjustmentApiResult)
-        if shiftsExecuted ~= offsetXAtAdjustmentTime then
-          error("Actual X offset: " .. shiftsExecuted .. " predicted: " .. offsetXAtAdjustmentTime .. " Diff: " .. offsetXAtAdjustmentTime - shiftsExecuted)
-        end
-      end
+    end
+    if frameIndex == REACTION_TIME_FRAMES and (SHOULD_ADJUST or isFirstPiece)  then
+      -- Once reaction time is over, handle adjustment
+      processAdjustment()
+    elseif frameIndex == REACTION_TIME_FRAMES + 1 then
+      -- Precompute the next placement
+      requestPrecompute()
     end
 
     -- Execute input sequence
@@ -435,16 +468,17 @@ function runGameFrame()
     frameIndex = frameIndex + 1
     arrFrameIndex = arrFrameIndex + 1
 
-  -- Do stuff right when the piece locks. If you want to check that the piece went to the correct spot/send an API request early here is probably good.
+  -- Do stuff right when the piece locks.
   elseif gamePhase >= 2 and gamePhase <= 8 then
-    -- If it's the frame the piece locks, then the board isn't updated yet. Also don't duplicate requests
-    if playstate == 1 then
+    if gamePhaseLastFrame == 1 then
       asPieceLocks()
       return
     end
-    if waitingOnAsyncRequest then
-      return
+    -- If the agent is mistaken about the board state, crash immediately so I can debug it
+    if gamePhase == 8 and not gameOver and getEncodedBoard() ~= stateForNextPiece.board then
+      error("Divergence")
     end
+
   -- Detects when the game is over.
   elseif gamePhase == 10 then
       gameOver = true
@@ -457,55 +491,19 @@ end
 
 
 
-function onFirstFrameOfNewPiece()
-  -- Read values from memory
-  local function bcdToDecimal(a)
-    return 10 * (a - (a % 16)) / 16 + (a % 16)
-  end
-  pcur = memory.readbyte(0x0042) -- Stores current/next pieces before they even appear onscreen
-  pnext = memory.readbyte(0x0019)
-  numLines = bcdToDecimal(memory.readbyte(0x0051)) * 100 + bcdToDecimal(memory.readbyte(0x0050))
-  level = memory.readbyte(0x0044)
-  
-  resetPieceScopedVars()
-  
-  print("--------------------")
-  print(orientToPiece[pcur])
 
-  if not gameOver and waitingOnAsyncRequest then
-    -- Check in on the result of the previous async request for the inital placement
-    local apiResult = checkForAsyncResult()
-
-    print("Initial placement: " .. apiResult)
-    calculateInputs(apiResult, false)
-    parseGameStateFromResponse(apiResult)
-  end
-end
-
--- Called when the piece is locked. 
---   NOTE: THE BOARD/LEVEL/LINES ARE NOT UPDATED.  That's why there's the whole
---   shenanigans of tracking the state from the last API request
-function asPieceLocks()
-  print("Piece locked" .. emu.framecount())
-
-  -- Once the first piece locks, it's not the first piece anymore
-  isFirstPiece = false
-
-  -- If it hasn't hit its reaction time yet, collect the adjustment result anyway so the server is ready for the next one
-  local unused = checkForAsyncResult()
-
-  -- Make an asynx request to the server for the inital placement
-  requestPlacementAsyncNoNextBox()
-end
-
---[[-------------------------------------------------------- 
----------- Non-Gameplay Per-Frame Calculations ------------- 
+--[[--------------------------------------------------------
+--------------------- Main Frame Loop-----------------------
 --------------------------------------------------------]]--
 
 
-function beforeEachFrame()
+function eachFrame()
+  --Update metaGameState
+  local metaGameStateLastFrame = metaGameState
+  metaGameState = memory.readbyte(0x00C0)
+
   --Game starts
-  if(gameState == 3 and memory.readbyte(0x00C0) == 4) then
+  if(metaGameStateLastFrame == 3 and memory.readbyte(0x00C0) == 4) then
     if(SHOULD_RECORD_GAMES) then
       local dateStr = os.date("%m-%d %H %M")
       print(dateStr)
@@ -516,31 +514,28 @@ function beforeEachFrame()
   end
 
   --Check if a reset, hard reset, save state(?) has been loaded.
-  if(gameState == 4 and memory.readbyte(0x00C0) < 3) then
-  -- Panic
+  if(metaGameStateLastFrame == 4 and memory.readbyte(0x00C0) < 3) then
+    -- Panic
+    error("Reset, hard reset, or save state detected")
   end
 
   --Game ends, clean up data
-  if(gameState == 4 and memory.readbyte(0x00C0) == 3) then
+  if(metaGameStateLastFrame == 4 and memory.readbyte(0x00C0) == 3) then
   resetGameScopedVariables()
   if movie.active() then
       movie.stop()
       end
   end
 
-  --Update gameState
-  gameState = memory.readbyte(0x00C0)
-
-  if(gameState < 4) then
+  if(metaGameState < 4) then
     -- Currently on menu
   end
 
-  if(gameState == 4) then
+  if(metaGameState == 4) then
     runGameFrame()
   end
 
-  playstate = memory.readbyte(0x0048)
   trackAndLogFps()
 end
 
-emu.registerafter(beforeEachFrame)
+emu.registerafter(eachFrame)

@@ -3,11 +3,17 @@ const SquareState = utils.SquareState;
 const NUM_ROW = utils.NUM_ROW;
 const NUM_COLUMN = utils.NUM_COLUMN;
 
-export function getAiMode(board, lines, level, aiParams) {
+export function getAiMode(
+  board,
+  lines,
+  level,
+  currentPieceId: PieceId,
+  aiParams
+) {
   if (level >= 29 && aiParams.MAX_5_TAP_LOOKUP[level] <= 4) {
     return AiMode.KILLSCREEN;
   }
-  if (shouldUseDigMode(board, level, aiParams)) {
+  if (shouldUseDigMode(board, level, currentPieceId, aiParams)) {
     return AiMode.DIG;
   }
   if (level >= 29) {
@@ -28,7 +34,16 @@ export function getAiMode(board, lines, level, aiParams) {
  *  - If the hole doesn't have many filled lines above it, go dig it
  *  - Otherwise, play on and plan to play a few rows off the bottom
  */
-function shouldUseDigMode(board, level, aiParams) {
+function shouldUseDigMode(
+  board,
+  level,
+  currentPieceId: PieceId,
+  aiParams: AiParams
+) {
+  // Never dig while playing perfect
+  if (aiParams.BURN_COEF < -500) {
+    return false;
+  }
   // Calculate where the next Tetris will be built
   let row = 0;
   while (row < NUM_ROW && board[row][9] == SquareState.EMPTY) {
@@ -43,10 +58,13 @@ function shouldUseDigMode(board, level, aiParams) {
 
   function holeWarrantsDigging(row, firstFullRow) {
     const blockingWell = board[row][NUM_COLUMN - 1] === SquareState.FULL;
+    const numRowsOfGarbage = row - firstFullRow;
     return (
       (blockingWell && NUM_ROW - row > maxDirtyTetrisHeight) ||
-      (row >= tetrisZoneStart && row <= tetrisZoneEnd) ||
-      row - firstFullRow < 4
+      (currentPieceId === "I" &&
+        row >= tetrisZoneStart &&
+        row <= tetrisZoneEnd) ||
+      numRowsOfGarbage > 2
     );
   }
 

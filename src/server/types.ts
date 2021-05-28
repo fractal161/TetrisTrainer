@@ -24,6 +24,8 @@ interface SimParams {
   canFirstFrameShift: boolean;
 }
 
+/* ----------- Move Search-Related Types ------------ */
+
 interface SimState {
   x: number;
   y: number;
@@ -62,6 +64,7 @@ interface Possibility {
   holeCells: Array<CellLocation>;
   numLinesCleared: number;
   boardAfter: Board;
+  inputCost: number;
   fastEvalScore?: number;
   evalScore?: number;
   evalExplanation?: string;
@@ -106,16 +109,20 @@ const enum AiMode {
   KILLSCREEN_RIGHT_WELL,
 }
 
+/* ----------- Evaluation Parameters ------------- */
+
 interface InitialAiParams {
   AVG_HEIGHT_EXPONENT: number;
   AVG_HEIGHT_COEF: number;
   BURN_COEF: number;
   COL_10_COEF: number;
   COL_10_HEIGHT_MULTIPLIER_EXP: number;
+  DEAD_COEF: number;
   MAX_DIRTY_TETRIS_HEIGHT: number;
   EXTREME_GAP_COEF: number;
   BUILT_OUT_LEFT_COEF: number;
   BUILT_OUT_RIGHT_COEF: number;
+  LOW_LEFT_EXP: number;
   HOLE_COEF: number;
   HOLE_WEIGHT_COEF: number;
   SCARE_HEIGHT_OFFSET: number;
@@ -137,10 +144,27 @@ interface AiParams extends InitialAiParams {
   INPUT_FRAME_TIMELINE: string;
   MAX_5_TAP_LOOKUP: Object;
   MAX_4_TAP_LOOKUP: Object;
+  BURN_QUOTA?: number; // Can optionally have a limit to the number of burns
 }
 
 interface ParamMods {
   DIG: any;
   NEAR_KILLSCREEN: any;
   KILLSCREEN: any;
+}
+
+/* ------------ Messages for Worker Threads ------------ */
+
+interface WorkerDataArgs {
+  piece: PieceId;
+  newSearchState: SearchState;
+  initialAiParams: InitialAiParams;
+  paramMods: ParamMods;
+  inputFrameTimeline: string;
+}
+
+interface WorkerResponse {
+  type: string;
+  piece?: PieceId;
+  result?: PossibilityChain;
 }

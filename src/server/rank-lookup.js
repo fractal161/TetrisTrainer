@@ -3,8 +3,8 @@ const ranks_NoNextBox_NoBars = fs.readFileSync(
   "docs/condensed_NoNextBox_NoBars.txt",
   "utf8"
 );
-const ranks_NextBox_NoBars_1 = fs.readFileSync("docs/2byte_NextBox_1.txt", "utf8");
-const ranks_NextBox_NoBars_2 = fs.readFileSync("docs/2byte_NextBox_2.txt", "utf8");
+// const ranks_NextBox_NoBars_1 = fs.readFileSync("docs/2byte_NextBox_1.txt", "utf8");
+// const ranks_NextBox_NoBars_2 = fs.readFileSync("docs/2byte_NextBox_2.txt", "utf8");
 const CUTOFF = 200000000;
 
 /**
@@ -73,9 +73,10 @@ function getValueOfBoardSurface(surfaceArray, nextPieceId) {
   if (surfaceArray.length == 10) {
     throw new Error("Expected surface of length 9");
   }
-  return nextPieceId == null
+  /* return nextPieceId == null
     ? getValueOfBoardSurfaceNoNextBox(surfaceArray)
-    : getValueOfBoardSurfaceWithNextBox(surfaceArray, nextPieceId);
+    : getValueOfBoardSurfaceWithNextBox(surfaceArray, nextPieceId); */
+  return getValueOfBoardSurfaceNoNextBox(surfaceArray)
 }
 
 module.exports = {

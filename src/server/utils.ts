@@ -48,6 +48,22 @@ export function GetGravity(level) {
   }
 }
 
+export function formatPossibility(possibility: PossibilityChain) {
+  return (
+    possibility.placement[0] +
+    "," +
+    possibility.placement[1] +
+    "|" +
+    (possibility.inputSequence || "none") +
+    "|" +
+    possibility.boardAfter.map((row) => row.join("")).join("") +
+    "|" +
+    possibility.searchStateAfterMove.level +
+    "|" +
+    possibility.searchStateAfterMove.lines
+  );
+}
+
 const FRAME_WITH_INPUT = "X";
 const FRAME_WAITING = ".";
 
@@ -112,7 +128,24 @@ export function generateDigPracticeBoard(garbageHeight, numHoles) {
   return board;
 }
 
-function isTuckSetup(row, col, board) {}
+/** Returns true if the specified cell 1) exists and 2) is empty */
+function isEmptyCell(row, col, board) {
+  if (col < 0 || col >= NUM_COLUMN || row < 0 || row >= NUM_ROW) {
+    return false;
+  }
+  return board[row][col] == SquareState.EMPTY;
+}
+
+/** Detects holes that could potentially be tucked into */
+export function isTuckSetup(row, col, board, heights) {
+  if (isEmptyCell(row, col + 1, board) && isEmptyCell(row, col + 2, board)) {
+    return true;
+  }
+  if (isEmptyCell(row, col - 1, board) && isEmptyCell(row, col - 2, board)) {
+    return true;
+  }
+  return false;
+}
 
 export function getSurfaceArrayAndHoles(
   board: Board
@@ -120,15 +153,26 @@ export function getSurfaceArrayAndHoles(
   const heights = [];
   let numHoles = 0;
   let holeCells: Array<CellLocation> = [];
+
+  // Get the column heights first
   for (let col = 0; col < NUM_COLUMN; col++) {
     let row = 0;
     while (row < NUM_ROW && board[row][col] == 0) {
       row++;
     }
     heights.push(20 - row);
+  }
+  // Then look for holes
+  for (let col = 0; col < NUM_COLUMN; col++) {
+    let row = 20 - heights[col];
     while (row < NUM_ROW - 1) {
       row++;
       if (board[row][col] === SquareState.EMPTY && col < NUM_COLUMN - 1) {
+        if (isTuckSetup(row, col, board, heights)) {
+          numHoles += 0.5;
+          holeCells.push([row, col]);
+        }
+
         // Add a hole if it's anywhere other than column 10
         numHoles++;
         holeCells.push([row, col]);
@@ -179,15 +223,38 @@ export function getHoleCount(board) {
   return getSurfaceArrayAndHoles(board)[1];
 }
 
-/** Checks if clearing a certain number of lines will increase the level, and if so what that level is. */
-export function getLevelAfterLineClears(level, lines, numLinesCleared) {
-  if (level === 18 && lines + numLinesCleared >= 130) {
-    return 19;
+export function getLineCountOfFirstTransition(startingLevel) {
+  if (startingLevel < 10) {
+    return (startingLevel + 1) * 10;
+  } else if (startingLevel <= 15) {
+    return 100;
+  } else {
+    return (startingLevel - 5) * 10;
   }
-  if (level === 28 && lines + numLinesCleared >= 230) {
+}
+
+/** Checks if clearing a certain number of lines will increase the level, and if so what that level is.
+ * NOTE: This assumes level 18, 19, or 29 starts.
+ */
+export function getLevelAfterLineClears(level, lines, numLinesCleared) {
+  // Once you go killscreen you never go back
+  if (level >= 29) {
     return 29;
   }
-  return level;
+  const newLineCount = lines + numLinesCleared;
+  if (newLineCount < 130) {
+    return Math.max(level, 18);
+  } else if (newLineCount < 230) {
+    return 19 + Math.floor((newLineCount - 130) / 10);
+  } else {
+    return 29;
+  }
+}
+
+export function parseBoard(boardStr: string): Board {
+  return boardStr
+    .match(/.{1,10}/g) // Select groups of 10 characters
+    .map((rowSerialized) => rowSerialized.split("").map((x) => parseInt(x)));
 }
 
 export function getScareHeight(level: number, aiParams: AiParams) {
