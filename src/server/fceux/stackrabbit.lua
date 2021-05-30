@@ -2,30 +2,30 @@ local http = require("socket.http")
 local os = require("os")
 local socket = require "socket"
 
-TIMELINE_2_HZ = "X.............................";
-TIMELINE_6_HZ = "X........";
-TIMELINE_7_HZ = "X.......";
-TIMELINE_8_HZ = "X......";
-TIMELINE_10_HZ = "X.....";
-TIMELINE_11_HZ = "X.....X....X....";
-TIMELINE_12_HZ = "X....";
-TIMELINE_13_HZ = "X....X...";
-TIMELINE_13_5_HZ = "X....X...X...";
-TIMEILNE_14_HZ = "X....X...X...X...";
-TIMELINE_15_HZ = "X...";
-TIMELINE_20_HZ = "X..";
-TIMELINE_30_HZ = "X.";
+TIMELINE_2_HZ = "X............................."
+TIMELINE_6_HZ = "X........"
+TIMELINE_7_HZ = "X......."
+TIMELINE_8_HZ = "X......"
+TIMELINE_10_HZ = "X....."
+TIMELINE_11_HZ = "X.....X....X...."
+TIMELINE_12_HZ = "X...."
+TIMELINE_13_HZ = "X....X..."
+TIMELINE_13_5_HZ = "X....X...X..."
+TIMEILNE_14_HZ = "X....X...X...X..."
+TIMELINE_15_HZ = "X..."
+TIMELINE_20_HZ = "X.."
+TIMELINE_30_HZ = "X."
 TIMELINE_KYROS = "...X.X.X.X.X.X.X.X.X"
 
 -- Config constants
 SHOULD_ADJUST = true
 REACTION_TIME_FRAMES = 25
-INPUT_TIMELINE = TIMELINE_12_HZ;
+INPUT_TIMELINE = TIMELINE_12_HZ
 SHOULD_RECORD_GAMES = false
 MOVIE_PATH = "C:\\Users\\Greg\\Desktop\\VODs\\" -- Where to store the fm2 VODS (absolute path)
 
 function resetGameScopedVariables()
-  isFirstPiece = true;
+  isFirstPiece = true
   metaGameState = 0
   gamePhase = 0
   numLines = 0
@@ -34,7 +34,7 @@ function resetGameScopedVariables()
   pcur = 0
   pnext = 0
 end
-resetGameScopedVariables();
+resetGameScopedVariables()
 
 -- Reset all variables whose values are tied to one piece
 function resetPieceScopedVars()
@@ -142,7 +142,7 @@ function requestAdjustmentAsync()
 end
 
 function requestPrecompute()
-  print("requestprecompute")
+  -- print("requestprecompute")
   -- Format URL arguments
   if stateForNextPiece == nil or stateForNextPiece.board == nil
         or stateForNextPiece.lines == nil or stateForNextPiece.level == nil then
@@ -159,7 +159,7 @@ function requestPrecompute()
   if response.code ~= 200 then
     error("Request not acknowledged by backend")
   end
-  waitingOnAsyncRequest = true;
+  waitingOnAsyncRequest = true
   return response.data
 end
 
@@ -172,7 +172,7 @@ function fetchAsyncResult()
     error("RECEIVED BAD RESPONSE CODE:" .. response.code)
     return nil
   end
-  waitingOnAsyncRequest = false;
+  waitingOnAsyncRequest = false
   return response.data
 end
 
@@ -258,35 +258,34 @@ function executeInputs()
       return
     end
 
-    local thisFrameStr = getInputForFrame(arrFrameIndex);
+    local thisFrameStr = getInputForFrame(arrFrameIndex)
     print(arrFrameIndex .. "  " .. thisFrameStr)
     -- Simple cases
     if thisFrameStr == "A" then
-      inputsThisFrame.A = true;
+      inputsThisFrame.A = true
     elseif thisFrameStr == "B" then
-      inputsThisFrame.B = true;
+      inputsThisFrame.B = true
     elseif thisFrameStr == "L" then
-      inputsThisFrame.left = true;
+      inputsThisFrame.left = true
     elseif thisFrameStr == "R" then
-      inputsThisFrame.right = true;
+      inputsThisFrame.right = true
     -- Combo cases
     elseif thisFrameStr == "E" then
-      inputsThisFrame.left = true;
-      inputsThisFrame.A = true;
+      inputsThisFrame.left = true
+      inputsThisFrame.A = true
     elseif thisFrameStr == "F" then
-      inputsThisFrame.left = true;
-      inputsThisFrame.B = true;
+      inputsThisFrame.left = true
+      inputsThisFrame.B = true
     elseif thisFrameStr == "I" then
-      inputsThisFrame.right = true;
-      inputsThisFrame.A = true;
+      inputsThisFrame.right = true
+      inputsThisFrame.A = true
     elseif thisFrameStr == "G" then
-      inputsThisFrame.right = true;
-      inputsThisFrame.B = true;
+      inputsThisFrame.right = true
+      inputsThisFrame.B = true
     elseif thisFrameStr == "." then
       -- Do nothing
     else
-      print("Unknown character in input sequence" .. arrFrameIndex + 1)
-      print(thisFrameStr)
+      print("Unknown character in input sequence" .. arrFrameIndex + 1 .. ": " .. thisFrameStr)
     end
 
     if inputsThisFrame.left then
@@ -297,7 +296,7 @@ function executeInputs()
 
     -- Debug logs
     if inputsThisFrame.left or inputsThisFrame.right then
-      print("SHIFT" .. emu.framecount())
+      print("SHIFT " .. emu.framecount())
     end
 
     -- Send our computed inputs to the controller
@@ -324,7 +323,7 @@ function trackAndLogFps()
   if msElapsed > (secsElapsed + 1) * 1000 then
     secsElapsed = secsElapsed + 1
     if secsElapsed % 30 == 0 then
-      print("Average FPS:" .. framesElapsed / secsElapsed)
+      print("Average FPS: " .. framesElapsed / secsElapsed)
     end
   end
 end
@@ -375,7 +374,7 @@ function asPieceLocks()
 
   -- If it hasn't already, queue up the next precompute
   if not waitingOnAsyncRequest then
-    requestPrecompute();
+    requestPrecompute()
   end
 end
 
@@ -398,6 +397,26 @@ function processAdjustment()
   end
 end
 
+--[[-----------------------------------
+---------- Drawing Logic  -------------
+-----------------------------------]]--
+--[[ tileColors = {0,1,2,0,1,2,0}
+function pieceCollides(board, x, y, type)
+
+end
+
+function drawPiece(x, y, type)
+
+end
+
+-- Idea here is to take input sequence, current level, play it all out, then drop until we hit something.
+function getRestingPos(inputSequence)
+  for char in inputSequence do
+    
+  end
+end
+
+]]--
 
 --[[------------------------------------
 ---------- Main Game Loop  -------------

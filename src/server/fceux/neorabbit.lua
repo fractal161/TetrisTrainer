@@ -1,39 +1,40 @@
 local http = require("socket.http")
 local os = require("os")
-require "socket"
+local socket = require "socket"
 
 -- Constants
 STARTUP_FRAMES = 16
 FIRST_PIECE_TOTAL_DELAY = 99
 GameState = {IN_GAME=1, MENU=2, GAME_OVER=3}
 MOVIE_PATH = "C:\\Users\\Greg\\Desktop\\VODs\\" -- Where to store the fm2 VODS (absolute path)
-TIMELINE_2_HZ = "X.............................";
-TIMELINE_6_HZ = "X........";
-TIMELINE_7_HZ = "X.......";
-TIMELINE_8_HZ = "X......";
-TIMELINE_10_HZ = "X.....";
-TIMELINE_11_HZ = "X.....X....X....";
-TIMELINE_12_HZ = "X....";
-TIMELINE_13_HZ = "X....X...";
-TIMELINE_13_5_HZ = "X....X...X...";
-TIMEILNE_14_HZ = "X....X...X...X...";
-TIMELINE_15_HZ = "X...";
-TIMELINE_20_HZ = "X..";
-TIMELINE_30_HZ = "X.";
+
+TIMELINE_2_HZ = "X............................."
+TIMELINE_6_HZ = "X........"
+TIMELINE_7_HZ = "X......."
+TIMELINE_8_HZ = "X......"
+TIMELINE_10_HZ = "X....."
+TIMELINE_11_HZ = "X.....X....X...."
+TIMELINE_12_HZ = "X...."
+TIMELINE_13_HZ = "X....X..."
+TIMELINE_13_5_HZ = "X....X...X..."
+TIMEILNE_14_HZ = "X....X...X...X..."
+TIMELINE_15_HZ = "X..."
+TIMELINE_20_HZ = "X.."
+TIMELINE_30_HZ = "X."
 TIMELINE_KYROS = "......X.X.X.X.X.X.X.X.X"
 
 -- Configurable Params
 STARTING_LEVEL = 19
 REACTION_TIME_FRAMES = 18
 REACTION_IS_ARTIFICIAL = true -- True if it's a handicap for adjustments, False if it's a hardware limitation
-INPUT_TIMELINE = TIMELINE_12_HZ;
-SHOULD_RECORD_GAMES = true
+INPUT_TIMELINE = TIMELINE_12_HZ
+SHOULD_RECORD_GAMES = false
 
 -- Global Variables
 g_menuFrameIndex = 0
 
---[[------------------------------------ 
------------ HTTP Requests -------------- 
+--[[------------------------------------
+----------- HTTP Requests --------------
 ------------------------------------]]--
 
 function makeHttpRequest(requestUrl)
@@ -64,8 +65,8 @@ function fetchAsyncResult()
   if response.code ~= 200 then
     error("RECEIVED BAD RESPONSE CODE:" .. response.code)
     return nil
-  end 
-  n_waitingOnAsyncRequest = false;
+  end
+  n_waitingOnAsyncRequest = false
   print(response.data)
   return response.data
 end
@@ -73,7 +74,7 @@ end
 
 
 function requestPrecompute(isForFirstPiece)
-  print("requestprecompute")
+  -- print("requestprecompute")
   -- Format URL arguments
   if n_stateForNextPiece == nil or n_stateForNextPiece.board == nil
         or n_stateForNextPiece.lines == nil or n_stateForNextPiece.level == nil then
@@ -92,7 +93,7 @@ function requestPrecompute(isForFirstPiece)
   if response.code ~= 200 then
     error("Request not acknowledged by backend")
   end
-  n_waitingOnAsyncRequest = true; 
+  n_waitingOnAsyncRequest = true
 end
 
 
@@ -127,12 +128,12 @@ function parseGameStateFromResponse(apiResult)
   end
 
   local split = splitString(apiResult, ",|\|")
-  
+
   if split[4] ~= nil and split[5] ~= nil and split[6] ~= nil then
-    n_stateForNextPiece = { 
-      board=split[4], 
-      level=split[5], 
-      lines=split[6] 
+    n_stateForNextPiece = {
+      board=split[4],
+      level=split[5],
+      lines=split[6]
     }
   end
 end
@@ -147,12 +148,12 @@ function processAdjustment()
   local adjustmentApiResult = n_adjustmentLookup[n_nextPiece]
   queueUpInputs(adjustmentApiResult, --[[isAdjustment]] true)
   parseGameStateFromResponse(adjustmentApiResult)
-   
+
 end
 
 
---[[------------------------------------ 
------------ Input Handling ------------- 
+--[[------------------------------------
+----------- Input Handling -------------
 ------------------------------------]]--
 
 
@@ -176,7 +177,7 @@ function queueUpInputs(apiResult, isAdjustment)
     n_frameQueue = {} -- Wipe the previous placement
   end
 
-  print("QUEUEING UP:" .. inputSequence)
+  print("QUEUEING UP: " .. inputSequence)
 
   -- Add each input to the frame queue
   for i = 1, #inputSequence do
@@ -190,29 +191,29 @@ end
 function executeInputs(thisFrameStr)
   local controllerInputs = {A=false, B=false, left=false, right=false, up=false, down=false, select=false, start=false}
 
-  print(n_pieceFrameIndex .. "  " .. thisFrameStr)
+  -- print(n_pieceFrameIndex .. "  " .. thisFrameStr)
   -- Simple cases
   if thisFrameStr == "A" then
-    controllerInputs.A = true;
+    controllerInputs.A = true
   elseif thisFrameStr == "B" then
-    controllerInputs.B = true;
+    controllerInputs.B = true
   elseif thisFrameStr == "L" then
-    controllerInputs.left = true;
+    controllerInputs.left = true
   elseif thisFrameStr == "R" then
-    controllerInputs.right = true;
+    controllerInputs.right = true
   -- Combo cases
   elseif thisFrameStr == "E" then
-    controllerInputs.left = true;
-    controllerInputs.A = true;
+    controllerInputs.left = true
+    controllerInputs.A = true
   elseif thisFrameStr == "F" then
-    controllerInputs.left = true;
-    controllerInputs.B = true;
+    controllerInputs.left = true
+    controllerInputs.B = true
   elseif thisFrameStr == "I" then
-    controllerInputs.right = true;
-    controllerInputs.A = true;
+    controllerInputs.right = true
+    controllerInputs.A = true
   elseif thisFrameStr == "G" then
-    controllerInputs.right = true;
-    controllerInputs.B = true;
+    controllerInputs.right = true
+    controllerInputs.B = true
   elseif thisFrameStr == "." or thisFrameStr == "*" or thisFrameStr == "^" then
     -- Do nothing
   else
@@ -240,10 +241,123 @@ function fetchNextPiece()
   print("NEXT PIECE:" .. n_nextPiece)
 end
 
+--[[-----------------------------------
+---------- Drawing Logic  -------------
+-----------------------------------]]--
+tileColors = {0,1,2,0,1,2,0}
 
 
---[[------------------------------------ 
------------ Major Frame Loops ------------ 
+-- E....L....L....L....L.....**************
+-- 123456789012345678..L.....**************
+-- Colors are r,g,b,alpha for some reason???
+
+function drawHUD()
+  -- print("Draw")
+  drawPiece(6,1,1,1)
+  if inputSequence ~= nil then
+    gui.text(8,8, inputSequence)
+    local test = 16
+    if n_adjustmentLookup ~= {} then
+      for piece,adjust in pairs(n_adjustmentLookup) do
+        if adjust ~= nil and adjust ~= "No legal moves" then
+          -- print(adjust)
+          gui.text(8, test, piece .. ": ".. splitString(adjust, ",|\|")[3])
+        else
+          gui.text(8, test, piece .. ": NO MOVES")
+        end
+        test = test + 8
+      end
+    end
+  else
+    gui.text(8,8,"NO INPUT")
+    gui.text(8,16, "!@#$%^&*")
+  end
+end
+
+function drawCell(x, y, type)
+  gui.drawrect(96 + 8*(x-1), 48+8*(y-1), 96+8*x, 48+8*y, 0xFFFFFF7F)
+end
+
+coords = {
+  {
+    {{0, 1}, {0, 0}, {1, 0}, {-1, 0}},
+    {{0, 1}, {0, 0}, {1, 0}, {0, -1}},
+    {{-1, 0}, {0, 0}, {1, 0}, {0, -1}},
+    {{0, 1}, {0, 0}, {0, -1}, {-1, 0}}
+  },
+  {
+    {{-1, 0}, {0, 0}, {1, 0}, {1, 1}},
+    {{0, -1}, {1, -1}, {0, 0}, {0, 1}},
+    {{-1, -1}, {-1, 0}, {0, 0}, {1, 0}},
+    {{0, -1}, {0, 0}, {-1, 1}, {0, 1}}
+  },
+  {
+    {{-1, 0}, {0, 0}, {0, 1}, {1, 1}},
+    {{1, -1}, {0, 0}, {1, 0}, {0, 1}}
+  },
+  {
+    {{-1, 0}, {0, 0}, {-1, 1}, {0, 1}}
+  },
+  {
+    {{0, 0}, {1, 0}, {-1, 1}, {0, 1}},
+    {{0, -1}, {0, 0}, {1, 0}, {1, 1}}
+  },
+  {
+  {
+    {-1, 0}, {0, 0}, {1, 0}, {-1, 1}},
+    {{0, -1}, {0, 0}, {0, 1}, {1, 1}},
+    {{1, -1}, {-1, 0}, {0, 0}, {1, 0}},
+    {{-1, -1}, {0, -1}, {0, 0}, {0, 1}}
+  },
+  {
+    {{-2, 0}, {-1, 0}, {0, 0}, {1, 0}},
+    {{0, -2}, {0, -1}, {0, 0}, {0, 1}}
+  }
+}
+
+function drawPiece(x, y, type, orient)
+  -- print(coords[type][orient])
+  for _,coord in ipairs(coords[type][orient]) do
+    drawCell(x+coord[1], y+coord[2], tileColors[type])
+  end
+end
+
+-- Idea here is to take input sequence, current level, play it all out, then drop until we hit something.
+function getRestingPos(inputSequence)
+  for char in inputSequence do
+    if char == "A" then
+      controllerInputs.A = true
+    elseif char == "B" then
+      controllerInputs.B = true
+    elseif char == "L" then
+      controllerInputs.left = true
+    elseif char == "R" then
+      controllerInputs.right = true
+    -- Combo cases
+    elseif char == "E" then
+      controllerInputs.left = true
+      controllerInputs.A = true
+    elseif char == "F" then
+      controllerInputs.left = true
+      controllerInputs.B = true
+    elseif char == "I" then
+      controllerInputs.right = true
+      controllerInputs.A = true
+    elseif char == "G" then
+      controllerInputs.right = true
+      controllerInputs.B = true
+    elseif char == "." or char == "*" or char == "^" then
+      -- Do nothing
+    else
+      error("Unknown character in input sequence" .. char)
+    end
+  end
+end
+
+
+
+--[[------------------------------------
+----------- Major Frame Loops ------------
 ------------------------------------]]--
 
 gamePhase = 0
@@ -268,7 +382,7 @@ end
 
 
 function runGameFrame()
-  print("Game frame" .. n_frameIndex)
+  -- print("Game frame " .. n_frameIndex)
   doubleCheck()
 
   ---------------- Event handling -----------------
@@ -339,7 +453,7 @@ function runGameFrame()
       extraFrames = 1
     end
 
-    print("EXTRA FRAMES:", extraFrames)
+    print("EXTRA FRAMES: ", extraFrames)
     for i = 1,extraFrames do
       table.insert(n_frameQueue, 5, "^")
     end
@@ -379,7 +493,7 @@ function runGameFrame()
       error("Divergence")
     end
   end
-  
+
   ----------------- Standard inputs -----------------
 
   executeInputs(inputThisFrame)
@@ -404,8 +518,8 @@ function runMenuFrame()
 end
 
 
---[[------------------------------------ 
------------ Helper Functions ------------ 
+--[[------------------------------------
+----------- Helper Functions ------------
 ------------------------------------]]--
 
 -- Implementation of string split that I definitely didn't find on stack overflow
@@ -517,11 +631,12 @@ end
 
 
 
---[[-------------------------------------------------------- 
---------------------- Main Frame Loop----------------------- 
+--[[--------------------------------------------------------
+--------------------- Main Frame Loop-----------------------
 --------------------------------------------------------]]--
 
 function eachFrame()
+  drawHUD()
   if n_gameState == GameState.IN_GAME then
     runGameFrame()
   elseif n_gameState == GameState.GAME_OVER then
