@@ -23,7 +23,7 @@ TIMELINE_30_HZ = "X."
 TIMELINE_KYROS = "......X.X.X.X.X.X.X.X.X"
 
 -- Configurable Params
-STARTING_LEVEL = 18
+STARTING_LEVEL = 19
 REACTION_TIME_FRAMES = 18
 REACTION_IS_ARTIFICIAL = true -- True if it's a handicap for adjustments, False if it's a hardware limitation
 INPUT_TIMELINE = TIMELINE_12_HZ
@@ -260,7 +260,9 @@ tileColors = {0,1,2,0,1,2,0}
 
 function drawHUD()
   -- print("Draw")
-  drawPiece(6,1,1,1)
+  local orientToNum = {[0]="none", [2]=1, [7]=2, [8]=3, [10]=4, [11]=5, [14]=6, [18]=7}
+  -- BUG because it dies when rotation happens
+  drawPiece(6,1,orientToNum[memory.readbyte(0x0042)],1)
   if inputSequence ~= nil then
     gui.text(8,8, inputSequence)
     local test = 16
@@ -324,6 +326,7 @@ coords = {
 
 function drawPiece(x, y, type, orient)
   -- print(coords[type][orient])
+  if coords[type] == nil then return end
   for _,coord in ipairs(coords[type][orient]) do
     drawCell(x+coord[1], y+coord[2], tileColors[type])
   end
@@ -331,11 +334,12 @@ end
 
 -- Idea here is to take input sequence, current level, play it all out, then drop until we hit something.
 function getRestingPos(inputSequence)
+  local rot = 1
   for char in inputSequence do
     if char == "A" then
-      controllerInputs.A = true
+      rot = rot - 1
     elseif char == "B" then
-      controllerInputs.B = true
+      rot = rot + 1
     elseif char == "L" then
       controllerInputs.left = true
     elseif char == "R" then

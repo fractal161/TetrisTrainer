@@ -1,6 +1,7 @@
-local http = require("socket.http")
-local os = require("os")
-local socket = require "socket"
+http = require("socket.http")
+os = require("os")
+socket = require "socket"
+colors = require "colors"
 
 TIMELINE_2_HZ = "X............................."
 TIMELINE_6_HZ = "X........"
@@ -19,6 +20,7 @@ TIMELINE_KYROS = "...X.X.X.X.X.X.X.X.X"
 
 -- Config constants
 SHOULD_ADJUST = true
+DEBUG = false
 REACTION_TIME_FRAMES = 25
 INPUT_TIMELINE = TIMELINE_12_HZ
 SHOULD_RECORD_GAMES = false
@@ -42,6 +44,7 @@ function resetPieceScopedVars()
   frameIndex = 0
   arrFrameIndex = 0
   inputSequence = ""
+  baseSequence = ""
   shiftsExecuted = 0
   rotationsExecuted = 0
   stateForNextPiece = {board=nil, level=nil, lines=nil}
@@ -112,6 +115,7 @@ function parsePrecompute(precomputeResult)
     end
     print("Initial placement: " .. defaultPlacement)
     calculateInputs(defaultPlacement, false)
+    baseSequence = inputSequence
     parseGameStateFromResponse(defaultPlacement)
   end
 
@@ -389,6 +393,7 @@ function processAdjustment()
   if isFirstPiece then
     local adjustmentApiResult = fetchAsyncResult()
     calculateInputs(adjustmentApiResult, true)
+    baseSequence = inputSequence
     parseGameStateFromResponse(adjustmentApiResult)
   else
     local adjustmentApiResult = adjustmentLookup[orientToPiece[pnext]]
@@ -400,23 +405,178 @@ end
 --[[-----------------------------------
 ---------- Drawing Logic  -------------
 -----------------------------------]]--
---[[ tileColors = {0,1,2,0,1,2,0}
-function pieceCollides(board, x, y, type)
 
-end
+-- Colors are r,g,b,alpha for some reason???
 
-function drawPiece(x, y, type)
 
-end
+function drawHUD()
+  if baseSequence ~= nil and baseSequence ~= "" then
+    -- gui.text(8,8, baseSequence)
+    local shift, rot, drop = getRestingPos(baseSequence)
+    if(isFirstPiece) then drop = drop + 1 end
+    drawPiece(shift,drop,orientToNum[pcur],rot)
+    drawTrajectory(baseSequence, isFirstPiece)
+    -- local test = 16
 
--- Idea here is to take input sequence, current level, play it all out, then drop until we hit something.
-function getRestingPos(inputSequence)
-  for char in inputSequence do
-    
+    -- Sort each suffix
+    if adjustmentLookup ~= {} then
+      local suffixCounts = {}
+      for piece,adjust in pairs(adjustmentLookup) do
+        if adjust ~= nil and adjust ~= "No legal moves" then
+          local suffix = splitString(adjust, ",|\|")[3]
+          if suffixCounts[suffix] == nil then
+            suffixCounts[suffix] = 0
+          else
+            suffixCounts[suffix] = suffixCounts[suffix] + 1
+          end
+        end
+      end
+
+      local colors = {0xFF00007F, 0xFFA5007F, 0xFFFF007F, 0x00FF007F, 0x0000FF7F, 0x4B00827F, 0x8000807F, 0xFFFFFF7F}
+      local inc = 1
+      for suffix, count in pairs(suffixCounts) do
+        shift, rot, drop = getRestingPos(changeSuffix(baseSequence, suffix))
+        drawPiece(shift,drop,orientToNum[pcur],rot, colors[inc], OR(colors[inc], 0xFF))
+        drawTrajectory(changeSuffix(baseSequence, suffix), isFirstPiece, OR(colors[inc],0xFF))
+        inc = inc + 1
+      end
+      -- shift, rot, drop = getRestingPos(changeSuffix(baseSequence, suffix))
+      -- drawPiece(shift,drop,orientToNum[pcur],rot)
+    end
+    drawTrajectory(string.sub(baseSequence, 1, REACTION_TIME_FRAMES), isFirstPiece, 0x808080FF)
   end
 end
 
-]]--
+function drawCell(x, y, fill, outline)
+  -- if fill == nil then fill = 0xFFFFFF7F end
+  -- if outline == nil then outline = 0xFFFFFFFF end
+  gui.drawrect(96 + 8*(x-1), 48+8*(y-1), 96+8*x, 48+8*y, fill, outline)
+end
+
+coords = {
+  {
+    {{0, 1}, {0, 0}, {1, 0}, {-1, 0}},
+    {{0, 1}, {0, 0}, {1, 0}, {0, -1}},
+    {{-1, 0}, {0, 0}, {1, 0}, {0, -1}},
+    {{0, 1}, {0, 0}, {0, -1}, {-1, 0}}
+  },
+  {
+    {{-1, 0}, {0, 0}, {1, 0}, {1, 1}},
+    {{0, -1}, {1, -1}, {0, 0}, {0, 1}},
+    {{-1, -1}, {-1, 0}, {0, 0}, {1, 0}},
+    {{0, -1}, {0, 0}, {-1, 1}, {0, 1}}
+  },
+  {
+    {{-1, 0}, {0, 0}, {0, 1}, {1, 1}},
+    {{1, -1}, {0, 0}, {1, 0}, {0, 1}}
+  },
+  {
+    {{-1, 0}, {0, 0}, {-1, 1}, {0, 1}}
+  },
+  {
+    {{0, 0}, {1, 0}, {-1, 1}, {0, 1}},
+    {{0, -1}, {0, 0}, {1, 0}, {1, 1}}
+  },
+  {
+  {
+    {-1, 0}, {0, 0}, {1, 0}, {-1, 1}},
+    {{0, -1}, {0, 0}, {0, 1}, {1, 1}},
+    {{1, -1}, {-1, 0}, {0, 0}, {1, 0}},
+    {{-1, -1}, {0, -1}, {0, 0}, {0, 1}}
+  },
+  {
+    {{-2, 0}, {-1, 0}, {0, 0}, {1, 0}},
+    {{0, -2}, {0, -1}, {0, 0}, {0, 1}}
+  }
+}
+
+function drawPiece(x, y, type, orient, fill, outline)
+  -- print(coords[type][orient])
+  if coords[type] == nil then return end
+  for _,coord in ipairs(coords[type][orient]) do
+    drawCell(x+coord[1], y+coord[2], fill, outline)
+  end
+end
+
+function changeSuffix(inputs, adjustment)
+  return string.sub(inputs,1,REACTION_TIME_FRAMES) .. adjustment
+end
+
+gravity = {48,43,38,33,28,23,18,13,8,6,5,5,5,4,4,4,3,3,3,2,2,2,2,2,2,2,2,2,2}
+
+function getRestingPos(inputSequence)
+  local shift = 6
+  local rot = 1
+  local drop = 0
+  for i = 1,#inputSequence do
+    local char = string.sub(inputSequence,i,i)
+    if char == "A" then
+      rot = rot - 1
+    elseif char == "B" then
+      rot = rot + 1
+    elseif char == "L" then
+      shift = shift - 1
+    elseif char == "R" then
+      shift = shift + 1
+    -- Combo cases
+    elseif char == "E" then
+      shift = shift - 1
+      rot = rot - 1
+    elseif char == "F" then
+      shift = shift - 1
+      rot = rot + 1
+    elseif char == "I" then
+      shift = shift + 1
+      rot = rot - 1
+    elseif char == "G" then
+      shift = shift + 1
+      rot = rot + 1
+    elseif char == "*" or char == "^" then
+      drop = drop - 1
+    elseif char == "." then
+      -- Do nothing
+    else
+      error("Unknown character in input sequence" .. char)
+    end
+    drop = drop + 1
+  end
+  rot = rot % #coords[orientToNum[pcur]]
+  if rot == 0 then rot = #coords[orientToNum[pcur]] end
+  local fall = 1
+  if level < 29 then fall = gravity[level + 1] end
+
+  -- if drop % fall ~= 0 then print("INCORRECT DROP THING") end
+  return shift, rot, math.floor(drop / fall)
+end
+
+function drawTrajectory(inputSequence, firstPiece, color)
+  if color == nil then color = 0xFFFFFFFF end
+  local curX, curY = 6,1
+  local fall = 1
+  if level < 29 then fall = gravity[level + 1] end
+  for i = 1,#inputSequence do
+    local oldX,oldY = curX,curY
+    local char = string.sub(inputSequence,i,i)
+    if char == "L" or char == "E" or char == "F" then
+      curX = curX - 1
+    elseif char == "R" or char == "I" or char == "G" then
+      curX = curX + 1
+    elseif char == "*" or char == "^" then
+      break
+    elseif char == "." or char == "A" or char == "B" then
+      -- Do nothing
+    else
+      error("Unknown character in input sequence" .. char)
+    end
+    if i % fall == 0 and not firstPiece and string.sub(inputSequence,i+1,i+1) ~= "*" and string.sub(inputSequence,i+1,i+1) ~= "^" then
+      curY = curY + 1
+    end
+    gui.drawline(92 + 8*oldX, 44+8*oldY, 92+8*curX, 44+8*curY, color)
+  end
+  if firstPiece then
+    gui.drawline(92 + 8*curX, 44+8*curY, 92+8*curX, 44+8*20, color)
+  end
+end
 
 --[[------------------------------------
 ---------- Main Game Loop  -------------
@@ -502,7 +662,7 @@ function eachFrame()
   if(metaGameState == 4) then
     runGameFrame()
   end
-
+  drawHUD()
   trackAndLogFps()
 end
 
