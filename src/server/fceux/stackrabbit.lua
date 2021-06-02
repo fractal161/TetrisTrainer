@@ -410,7 +410,7 @@ end
 
 
 function drawHUD()
-  if baseSequence ~= nil and baseSequence ~= "" then
+  if gamePhase == 1 and baseSequence ~= nil and baseSequence ~= "" then
     -- gui.text(8,8, baseSequence)
     local shift, rot, drop = getRestingPos(baseSequence)
     if(isFirstPiece) then drop = drop + 1 end
@@ -432,7 +432,7 @@ function drawHUD()
         end
       end
 
-      local colors = {0xFF00007F, 0xFFA5007F, 0xFFFF007F, 0x00FF007F, 0x0000FF7F, 0x4B00827F, 0x8000807F, 0xFFFFFF7F}
+      local colors = {0x0000FFBF, 0x007FFFBF, 0x00FFFFBF, 0x00FF7FBF, 0x7F00FFBF, 0x003FFFBF, 0x5E00FFBF}
       local inc = 1
       for suffix, count in pairs(suffixCounts) do
         shift, rot, drop = getRestingPos(changeSuffix(baseSequence, suffix))
@@ -448,9 +448,9 @@ function drawHUD()
 end
 
 function drawCell(x, y, fill, outline)
-  -- if fill == nil then fill = 0xFFFFFF7F end
-  -- if outline == nil then outline = 0xFFFFFFFF end
-  gui.drawrect(96 + 8*(x-1), 48+8*(y-1), 96+8*x, 48+8*y, fill, outline)
+  if fill == nil then fill = 0xFFFFFFBF end
+  if outline == nil then outline = 0xFFFFFFFF end
+  gui.drawrect(96 + 8*(x-1)-1, 48+8*(y-1)-1, 96+8*x-1, 48+8*y-1, fill, 0x00000000)
 end
 
 coords = {
