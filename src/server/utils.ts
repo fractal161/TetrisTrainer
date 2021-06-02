@@ -49,6 +49,9 @@ export function GetGravity(level) {
 }
 
 export function formatPossibility(possibility: PossibilityChain) {
+  if (possibility == null) {
+    return "No legal moves";
+  }
   return (
     possibility.placement[0] +
     "," +
@@ -168,10 +171,16 @@ export function getSurfaceArrayAndHoles(
     while (row < NUM_ROW - 1) {
       row++;
       if (board[row][col] === SquareState.EMPTY && col < NUM_COLUMN - 1) {
-        if (isTuckSetup(row, col, board, heights)) {
-          numHoles += 0.5;
-          holeCells.push([row, col]);
-        }
+        // if (isTuckSetup(row, col, board, heights)) {
+        //   numHoles += 0.8;
+        //   holeCells.push([row, col]);
+        //   while (row < NUM_ROW && board[row][col] === SquareState.EMPTY) {
+        //     numHoles += 0.2;
+        //     holeCells.push([row, col]);
+        //     row++;
+        //   }
+        //   break;
+        // }
 
         // Add a hole if it's anywhere other than column 10
         numHoles++;

@@ -311,16 +311,25 @@ function isTetrisReadyRightWell(board) {
 function getSurfaceValue(
   surfaceArray: Array<number>,
   totalHeightCorrected: number,
-  nextPieceId: PieceId,
   aiParams: AiParams
 ) {
-  let rawValue = rankLookup.getValueOfBoardSurface(surfaceArray, nextPieceId);
+  let rawValue = rankLookup.getValueOfBoardSurface(surfaceArray);
   // Add in the extreme gap penalty prior to transforming the rank
   rawValue += totalHeightCorrected * aiParams.EXTREME_GAP_COEF;
   const A = 150;
   const B = A / 30;
   // console.log(surfaceArray, nextPieceId, rawValue);
   return rawValue + B - A / Math.max(1, rawValue);
+}
+
+export function getPartialValue(
+  possibility: Possibility,
+  aiParams: InitialAiParams
+) {
+  return (
+    getLineClearValue(possibility.numLinesCleared, aiParams) +
+    possibility.inputCost
+  );
 }
 
 export function getLineClearValue(numLinesCleared, aiParams) {
@@ -342,15 +351,6 @@ function getBuiltOutLeftFactor(
   aiParams: AiParams,
   aiMode: AiMode
 ) {
-  // Don't build out the left if there's a hole there
-  if (
-    aiMode === AiMode.DIG ||
-    boardHelper.hasHoleInColumn(boardAfter, 0, /* numRowsFromTop= */ 5) ||
-    boardHelper.hasHoleInColumn(boardAfter, 1, /* numRowsFromTop= */ 5)
-  ) {
-    return 0;
-  }
-
   // Handle low left cases first
   const averageHeight = surfaceArray.slice(2, 8).reduce((a, b) => a + b) / 7;
   if (surfaceArray[0] < averageHeight) {
@@ -359,6 +359,15 @@ function getBuiltOutLeftFactor(
       aiParams.BUILT_OUT_LEFT_COEF *
       Math.pow(averageHeight - surfaceArray[0], aiParams.LOW_LEFT_EXP)
     );
+  }
+
+  // Don't build out the left if there's a hole there
+  if (
+    aiMode === AiMode.DIG ||
+    boardHelper.hasHoleInColumn(boardAfter, 0, /* numRowsFromTop= */ 5) ||
+    boardHelper.hasHoleInColumn(boardAfter, 1, /* numRowsFromTop= */ 5)
+  ) {
+    return 0;
   }
 
   // Otherwise reward building out the left
@@ -387,8 +396,7 @@ export function rateSurface(surfaceArray): string {
     surfaceArray.slice(0, 9)
   );
   let surfaceFactorNoNextBox = rankLookup.getValueOfBoardSurface(
-    correctedSurface,
-    null
+    correctedSurface
   );
   let result = "No next box: " + surfaceFactorNoNextBox.toFixed(2);
   for (const pieceId of utils.POSSIBLE_NEXT_PIECES) {
@@ -396,7 +404,7 @@ export function rateSurface(surfaceArray): string {
       "\n" +
       pieceId +
       ": " +
-      rankLookup.getValueOfBoardSurface(correctedSurface, pieceId).toFixed(2);
+      rankLookup.getValueOfBoardSurface(correctedSurface).toFixed(2);
   }
   return result;
 }
@@ -450,12 +458,7 @@ export function fastEval(
 
   let surfaceFactor =
     aiParams.SURFACE_COEF *
-    getSurfaceValue(
-      correctedSurface,
-      totalHeightCorrected,
-      nextPieceId,
-      aiParams
-    );
+    getSurfaceValue(correctedSurface, totalHeightCorrected, aiParams);
   let killscreenSurfaceLeftFactor =
     aiParams.LEFT_SURFACE_COEF *
     getLeftSurfaceValue(boardAfter, aiParams, level);
@@ -585,12 +588,7 @@ export function getValueOfPossibility(
       : 0;
   let surfaceFactor =
     aiParams.SURFACE_COEF *
-    getSurfaceValue(
-      correctedSurface,
-      totalHeightCorrected,
-      nextPieceId,
-      aiParams
-    );
+    getSurfaceValue(correctedSurface, totalHeightCorrected, aiParams);
   let killscreenSurfaceLeftFactor =
     aiParams.LEFT_SURFACE_COEF *
     getLeftSurfaceValue(boardAfter, aiParams, level);

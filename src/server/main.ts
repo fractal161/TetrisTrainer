@@ -26,7 +26,29 @@ export function getBestMove(
   inputFrameTimeline: string,
   searchDepth: number,
   hypotheticalSearchDepth: number
-): PossibilityChain {
+) {
+  return (
+    getSortedMoveList(
+      searchState,
+      shouldLog,
+      initialAiParams,
+      paramMods,
+      inputFrameTimeline,
+      searchDepth,
+      hypotheticalSearchDepth
+    )[0] || null
+  );
+}
+
+export function getSortedMoveList(
+  searchState: SearchState,
+  shouldLog: boolean,
+  initialAiParams: InitialAiParams,
+  paramMods: ParamMods,
+  inputFrameTimeline: string,
+  searchDepth: number,
+  hypotheticalSearchDepth: number
+): Array<PossibilityChain> {
   // Add additional info to the base params (tap speed, dig/scoring mode, etc.)
   let aiParams = addTapInfoToAiParams(
     initialAiParams,
@@ -51,7 +73,7 @@ export function getBestMove(
   );
 
   if (hypotheticalSearchDepth == 0) {
-    return concretePossibilities[0] || null;
+    return concretePossibilities;
   } else {
     const sortedPossibilities = searchHypothetically(
       concretePossibilities,
@@ -60,7 +82,7 @@ export function getBestMove(
       hypotheticalSearchDepth,
       shouldLog
     );
-    return sortedPossibilities[0] || null;
+    return sortedPossibilities;
   }
 }
 
@@ -296,14 +318,10 @@ function searchDepth1(
 
     // Convert to a 1-chain
     possibility.totalValue = value as number;
-    possibility.partialValue = evaluator.getLineClearValue(
-      possibility.numLinesCleared,
-      aiParams
-    );
+    possibility.partialValue = evaluator.getPartialValue(possibility, aiParams);
     possibility.searchStateAfterMove = getSearchStateAfter(
       searchState,
-      possibility,
-      aiParams
+      possibility
     );
   }
   // Sort by value
@@ -429,10 +447,9 @@ function searchDepthNPlusOne(
   return hypotheticalResults;
 }
 
-function getSearchStateAfter(
+export function getSearchStateAfter(
   prevSearchState: SearchState,
-  possibility: Possibility,
-  aiParams: AiParams
+  possibility: Possibility
 ): SearchState {
   const levelAfter = utils.getLevelAfterLineClears(
     prevSearchState.level,

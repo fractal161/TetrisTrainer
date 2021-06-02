@@ -132,7 +132,7 @@ end
 -- Make a request that will kick off a longer calculation. Subsequent frames will ping the server again for the result.
 function requestAdjustmentAsync()
   -- Format URL arguments
-  local requestStr = "http://localhost:8080/async-nb/" .. getEncodedBoard()
+  local requestStr = "http://localhost:3000/async-nb/" .. getEncodedBoard()
   requestStr = requestStr .. "/" .. orientToPiece[pcur] .. "/" .. orientToPiece[pnext] .. "/" .. level .. "/" .. numLines
   requestStr = requestStr .. "/" .. offsetXAtAdjustmentTime .. "/" .. offsetYAtAdjustmentTime .. "/" .. rotationAtAdjustmentTime
   requestStr = requestStr .. "/" .. REACTION_TIME_FRAMES .. "/" .. INPUT_TIMELINE .. "/" .. tostring(canFirstFrameShiftAtAdjustmentTime)
@@ -154,7 +154,7 @@ function requestPrecompute()
     gameOver = true
     return
   end
-  local requestStr = "http://localhost:8080/precompute/" .. stateForNextPiece.board
+  local requestStr = "http://localhost:3000/precompute/" .. stateForNextPiece.board
   local requestStr = requestStr .. "/" .. orientToPiece[pnext] .. "/null/" .. stateForNextPiece.level
   local requestStr = requestStr .. "/" .. stateForNextPiece.lines .. "/0/0/0/"
   local requestStr = requestStr .. REACTION_TIME_FRAMES .. "/" .. INPUT_TIMELINE .. "/false" -- use the 'framesAlreadyElapsed' param to communicate reaction time
@@ -169,7 +169,7 @@ end
 
 -- Check if the async computation has finished, and if so make the adjustment based on it
 function fetchAsyncResult()
-  local response = makeHttpRequest("http://localhost:8080/async-result")
+  local response = makeHttpRequest("http://localhost:3000/async-result")
 
   -- Only use the response if the server indicated that it sent the async result
   if response.code ~= 200 then
@@ -233,6 +233,11 @@ end
 
 function calculateInputs(apiResult, isAdjustment)
   if apiResult == "No legal moves" or apiResult == nil then
+    if REACTION_TIME_FRAMES == 0 then
+      -- Game is over when there is no placement for a new piece
+      print("GAME OVER: No adjustment")
+      gameOver = true
+    end
     return
   end
 
@@ -264,33 +269,11 @@ function executeInputs()
 
     local thisFrameStr = getInputForFrame(arrFrameIndex)
     print(arrFrameIndex .. "  " .. thisFrameStr)
-    -- Simple cases
-    if thisFrameStr == "A" then
-      inputsThisFrame.A = true
-    elseif thisFrameStr == "B" then
-      inputsThisFrame.B = true
-    elseif thisFrameStr == "L" then
-      inputsThisFrame.left = true
-    elseif thisFrameStr == "R" then
-      inputsThisFrame.right = true
-    -- Combo cases
-    elseif thisFrameStr == "E" then
-      inputsThisFrame.left = true
-      inputsThisFrame.A = true
-    elseif thisFrameStr == "F" then
-      inputsThisFrame.left = true
-      inputsThisFrame.B = true
-    elseif thisFrameStr == "I" then
-      inputsThisFrame.right = true
-      inputsThisFrame.A = true
-    elseif thisFrameStr == "G" then
-      inputsThisFrame.right = true
-      inputsThisFrame.B = true
-    elseif thisFrameStr == "." then
-      -- Do nothing
-    else
-      print("Unknown character in input sequence" .. arrFrameIndex + 1 .. ": " .. thisFrameStr)
-    end
+
+    inputsThisFrame.A = (thisFrameStr == "A" or thisFrameStr == "E" or thisFrameStr == "I")
+    inputsThisFrame.B = (thisFrameStr == "B" or thisFrameStr == "F" or thisFrameStr == "G")
+    inputsThisFrame.left = (thisFrameStr == "L" or thisFrameStr == "E" or thisFrameStr == "F")
+    inputsThisFrame.right = (thisFrameStr == "R" or thisFrameStr == "I" or thisFrameStr == "G")
 
     if inputsThisFrame.left then
       shiftsExecuted = shiftsExecuted - 1
@@ -607,6 +590,7 @@ function runGameFrame()
   elseif gamePhase >= 2 and gamePhase <= 8 then
     if gamePhaseLastFrame == 1 then
       if not isFirstPiece and not gameOver and getInputForFrame(arrFrameIndex + 1) ~= "*" then
+        print(inputSequence)
         error("Server mistimed lock delay")
       end
       asPieceLocks()

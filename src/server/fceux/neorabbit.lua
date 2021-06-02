@@ -66,7 +66,7 @@ end
 
 -- Check if the async call has finished, and if so returns the computation result
 function fetchAsyncResult()
-  local response = makeHttpRequest("http://localhost:8080/async-result")
+  local response = makeHttpRequest("http://localhost:3000/async-result")
 
   -- Only use the response if the server indicated that it sent the async result
   if response.code ~= 200 then
@@ -91,7 +91,7 @@ function requestPrecompute(isForFirstPiece)
   local pieceStr = ternary(isForFirstPiece, n_currentPiece, n_nextPiece)
   local framesElapsed = ternary(isForFirstPiece, 0, REACTION_TIME_FRAMES)
 
-  local requestStr = "http://localhost:8080/precompute/" .. n_stateForNextPiece.board
+  local requestStr = "http://localhost:3000/precompute/" .. n_stateForNextPiece.board
   local requestStr = requestStr .. "/" .. pieceStr .. "/null/" .. n_stateForNextPiece.level
   local requestStr = requestStr .. "/" .. n_stateForNextPiece.lines .. "/0/0/0/"
   local requestStr = requestStr .. framesElapsed .. "/" .. INPUT_TIMELINE .. "/false" -- use the 'framesAlreadyElapsed' param to communicate reaction time
@@ -177,9 +177,6 @@ function queueUpInputs(apiResult, isAdjustment)
     return
   end
 
-  -- if not isAdjustment then
-  --   inputSequence = inputSequence:sub(1,REACTION_TIME_FRAMES)
-  -- end
   if isAdjustment then
     n_frameQueue = {} -- Wipe the previous placement
   end
@@ -198,34 +195,11 @@ end
 function executeInputs(thisFrameStr)
   local controllerInputs = {A=false, B=false, left=false, right=false, up=false, down=false, select=false, start=false}
 
-  -- print(n_pieceFrameIndex .. "  " .. thisFrameStr)
-  -- Simple cases
-  if thisFrameStr == "A" then
-    controllerInputs.A = true
-  elseif thisFrameStr == "B" then
-    controllerInputs.B = true
-  elseif thisFrameStr == "L" then
-    controllerInputs.left = true
-  elseif thisFrameStr == "R" then
-    controllerInputs.right = true
-  -- Combo cases
-  elseif thisFrameStr == "E" then
-    controllerInputs.left = true
-    controllerInputs.A = true
-  elseif thisFrameStr == "F" then
-    controllerInputs.left = true
-    controllerInputs.B = true
-  elseif thisFrameStr == "I" then
-    controllerInputs.right = true
-    controllerInputs.A = true
-  elseif thisFrameStr == "G" then
-    controllerInputs.right = true
-    controllerInputs.B = true
-  elseif thisFrameStr == "." or thisFrameStr == "*" or thisFrameStr == "^" then
-    -- Do nothing
-  else
-    error("Unknown character in input sequence" .. thisFrameStr)
-  end
+  print(n_pieceFrameIndex .. "  " .. thisFrameStr)
+  controllerInputs.A = (thisFrameStr == "A" or thisFrameStr == "E" or thisFrameStr == "I")
+  controllerInputs.B = (thisFrameStr == "B" or thisFrameStr == "F" or thisFrameStr == "G")
+  controllerInputs.left = (thisFrameStr == "L" or thisFrameStr == "E" or thisFrameStr == "F")
+  controllerInputs.right = (thisFrameStr == "R" or thisFrameStr == "I" or thisFrameStr == "G")
 
   -- Send our computed inputs to the controller
   joypad.set(1, controllerInputs)
@@ -454,17 +428,8 @@ function runGameFrame()
       error("Bad frame prediction")
     end
 
-    gfc = predictedGfc % 4
-    extraFrames = 0
-    if gfc == 1 then
-      extraFrames = 3
-    elseif gfc == 2 then
-      extraFrames = 2
-    elseif gfc == 3 then
-      extraFrames = 1
-    end
-
-    print("EXTRA FRAMES: ", extraFrames)
+    extraFrames = (4 - (predictedGfc % 4)) % 4
+    print("EXTRA FRAMES:", extraFrames)
     for i = 1,extraFrames do
       table.insert(n_frameQueue, 5, "^")
     end
@@ -614,7 +579,6 @@ function startGame()
     lines = 0
   }
   n_gfcOffset = memory.readbyte(0x00B1) + 1
-  print("GFC OFFSET: ", n_gfcOffset)
   n_isFirstPiece = true
   n_adjustmentLookup = {}
 

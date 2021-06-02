@@ -1,4 +1,6 @@
-import { getBestMove } from "./main";
+import { getPartialValue } from "./evaluator";
+import { getBestMove, getSearchStateAfter, getSortedMoveList } from "./main";
+import { getPossibleMoves } from "./move_search";
 import {
   formatPossibility,
   GetGravity,
@@ -22,6 +24,9 @@ export class PreComputeManager {
   onReadyCallback: Function;
   results: {};
   defaultPlacement: PossibilityChain;
+  phantomPlacements: Array<PhantomPlacement>;
+  inputFrameTimeline: string;
+  aiParams: InitialAiParams;
 
   constructor() {
     this.workers = [];
@@ -33,8 +38,16 @@ export class PreComputeManager {
     // The results to calculate
     this.defaultPlacement = null;
     this.results = {};
+    // Helper variables only used with finesse
+    this.phantomPlacements = null;
+    this.inputFrameTimeline = null;
+    this.aiParams = null;
 
     this._onMessage = this._onMessage.bind(this);
+    this._calculatePhantomPlacements = this._calculatePhantomPlacements.bind(
+      this
+    );
+    this._compileResponseFinesse = this._compileResponseFinesse.bind(this);
   }
 
   initialize(callback) {
@@ -47,6 +60,70 @@ export class PreComputeManager {
       newWorker.addListener("message", this._onMessage);
       this.workers.push(newWorker);
     }
+  }
+
+  finessePrecompute(
+    searchState: SearchState,
+    shouldLog: boolean,
+    initialAiParams: InitialAiParams,
+    paramMods: ParamMods,
+    inputFrameTimeline: string,
+    reactionTimeFrames: number,
+    onPartialResultCallback: Function,
+    onResultCallback: Function
+  ) {
+    console.time("FINESSE PRECOMPUTE");
+    this.onResultCallback = onResultCallback;
+    this.results = {};
+    this.pendingResults = NUM_THREADS;
+    this.inputFrameTimeline = inputFrameTimeline;
+    this.aiParams = initialAiParams;
+
+    // Get a backup placement, in case computation is slow
+    const possibleMoves = getSortedMoveList(
+      searchState,
+      shouldLog,
+      initialAiParams,
+      paramMods,
+      inputFrameTimeline,
+      /* searchDepth= */ 1,
+      /* hypotheticalSearchDepth= */ 0
+    );
+    this.defaultPlacement = possibleMoves[0] || null;
+    if (this.defaultPlacement === null) {
+      onResultCallback("No legal moves");
+      return;
+    }
+    // Send a response with just the default placement in case the other computation doesn't finish
+    // const formattedResult = formatPrecomputeResult({}, this.defaultPlacement);
+    // console.log(
+    //   "Saving partial result",
+    //   formatPossibility(this.defaultPlacement)
+    // );
+    // onPartialResultCallback(formattedResult);
+
+    // Ping all the workers to start evaluating the next piece values
+    for (let i = 0; i < POSSIBLE_NEXT_PIECES.length; i++) {
+      const nextPieceId = POSSIBLE_NEXT_PIECES[i];
+
+      const argsData: WorkerDataArgs = {
+        computationType: "finesse",
+        piece: nextPieceId,
+        newSearchState: { ...searchState, nextPieceId },
+        initialAiParams,
+        paramMods,
+        inputFrameTimeline,
+      };
+      this.workers[i].send(argsData);
+    }
+
+    // Calculate all the possible phantom placements (on main thread since it's not doing anything)
+    this._calculatePhantomPlacements(
+      searchState,
+      possibleMoves,
+      inputFrameTimeline,
+      reactionTimeFrames
+    );
   }
 
   precompute(
@@ -105,6 +182,7 @@ export class PreComputeManager {
       const nextPieceId = POSSIBLE_NEXT_PIECES[i];
 
       const argsData: WorkerDataArgs = {
+        computationType: "standard",
         piece: nextPieceId,
         newSearchState: { ...newSearchState, nextPieceId },
         initialAiParams,
@@ -113,6 +191,47 @@ export class PreComputeManager {
       };
       this.workers[i].send(argsData);
     }
+  }
+
+  _calculatePhantomPlacements(
+    initialSearchState: SearchState,
+    possibleMoves: Array<PossibilityChain>,
+    inputFrameTimeline: string,
+    reactionTimeFrames: number
+  ) {
+    const seenInputSequences = new Set();
+    const phantomPlacements: Array<PhantomPlacement> = [];
+
+    // Sort the possible moves by minimum number of inputs
+    possibleMoves.sort(
+      (a, b) => countInputs(a.placement) - countInputs(b.placement)
+    );
+
+    // Add a new phantom placement if it doesn't overlap an existing one
+    for (const possibility of possibleMoves) {
+      const newInputSequence = possibility.inputSequence.substr(
+        0,
+        reactionTimeFrames
+      );
+      if (!seenInputSequences.has(newInputSequence)) {
+        // Predict the state at adjustment time and register the phantom placement
+        const adjSearchState = predictSearchStateAtAdjustmentTime(
+          initialSearchState,
+          newInputSequence,
+          inputFrameTimeline,
+          reactionTimeFrames
+        );
+
+        // Add a new phantom placement
+        phantomPlacements.push({
+          inputSequence: newInputSequence,
+          defaultPlacement: possibility,
+          adjustmentSearchState: adjSearchState,
+        });
+        seenInputSequences.add(newInputSequence);
+      }
+    }
+    this.phantomPlacements = phantomPlacements;
   }
 
   _onMessage(message: WorkerResponse) {
@@ -138,6 +257,20 @@ export class PreComputeManager {
         }
         break;
 
+      case "result-finesse":
+        console.log(
+          `Finesse result for piece ${message.piece} ${message.result}`
+        );
+        // Save the partial result
+        this.results[message.piece] = message.result;
+        this.pendingResults--;
+        // If all results are in, compile them and send back to parent
+        if (this.pendingResults == 0) {
+          console.log("DONE WITH FINESSE WORKERS");
+          this._compileResponseFinesse();
+        }
+        break;
+
       default:
         throw new Error(
           "Unrecognized message type received from worker: " + message.type
@@ -154,22 +287,100 @@ export class PreComputeManager {
     if (this.onResultCallback === null) {
       throw new Error("No result callback provided");
     }
-    console.log(formattedResult);
+    // console.log(formattedResult);
     this.onResultCallback(formattedResult);
   }
+
+  _compileResponseFinesse() {
+    console.time("COLLAPSE");
+    let overallResponse: string = formatPrecomputeResult(
+      {},
+      this.defaultPlacement
+    );
+    let bestPhantomPlacementValue = Number.MIN_SAFE_INTEGER;
+    for (const phantomPlacement of this.phantomPlacements) {
+      let totalValue = 0;
+      const responseObj = {};
+      for (const pieceId of POSSIBLE_NEXT_PIECES) {
+        // Figure out what adjustment you'd do for that piece
+        const s = phantomPlacement.adjustmentSearchState;
+        const possibleAdjs = getPossibleMoves(
+          s.board,
+          s.currentPieceId,
+          s.level,
+          s.existingXOffset,
+          s.existingYOffset,
+          s.framesAlreadyElapsed,
+          this.inputFrameTimeline,
+          s.existingRotation,
+          s.canFirstFrameShift,
+          /* shouldLog= */ false
+        );
+        let maxValue = Number.MIN_SAFE_INTEGER;
+        let maxPossibility: PossibilityChain = null;
+        for (const adjPossibility of possibleAdjs) {
+          // Combine the partial value of this placement with the inner value from the lookup
+          const value =
+            getPartialValue(adjPossibility, this.aiParams) * 1.001 +
+            this.results[pieceId][adjPossibility.lockPositionEncoded];
+
+          // Check if this is the best adjustment
+          if (value > maxValue) {
+            maxValue = value;
+            maxPossibility = {
+              ...adjPossibility,
+              searchStateAfterMove: getSearchStateAfter(
+                phantomPlacement.adjustmentSearchState,
+                adjPossibility
+              ),
+              totalValue: 0,
+            };
+          }
+        }
+
+        // Save the adjustment you'd make if this ends up being the highest
+        responseObj[pieceId] = maxPossibility;
+        totalValue += maxValue;
+      }
+
+      // Check if this is the new best phantom placement
+      const phantomPlacementValue = totalValue / 7;
+      if (phantomPlacementValue > bestPhantomPlacementValue) {
+        overallResponse = formatPrecomputeResult(
+          responseObj,
+          phantomPlacement.defaultPlacement
+        );
+        bestPhantomPlacementValue = phantomPlacementValue;
+      }
+    }
+
+    console.timeEnd("COLLAPSE");
+    console.timeEnd("FINESSE PRECOMPUTE");
+    if (this.onResultCallback === null) {
+      throw new Error("No result callback provided");
+    }
+    this.onResultCallback(overallResponse);
+  }
+
+  // End of class
 }
 
 function formatPrecomputeResult(results, defaultPlacement) {
+  const defaultFormatted = formatPossibility(defaultPlacement);
   let resultString = `Default:${
     defaultPlacement ? formatPossibility(defaultPlacement) : "N/A"
   }`;
   for (const piece of POSSIBLE_NEXT_PIECES) {
-    if (!results[piece]) {
+    if (results == null) {
+      // If we have no next box info, do the default for everything
+      resultString += `\n${piece}:${defaultFormatted}`;
+    } else if (!results[piece]) {
+      // If we have some results but no moves for this piece
       resultString += `\n${piece}:No legal moves`;
-      continue;
+    } else {
+      // Otherwise, add the real result
+      resultString += `\n${piece}:${formatPossibility(results[piece])}`;
     }
-    const singlePieceFormatted = formatPossibility(results[piece]);
-    resultString += `\n${piece}:${singlePieceFormatted}`;
   }
   return resultString;
 }
@@ -183,7 +394,14 @@ function isAnyOf(str, possible) {
   return false;
 }
 
-function predictSearchStateAtAdjustmentTime(
+export function countInputs(placement) {
+  if (placement[0] == 3) {
+    return 1 + Math.abs(placement[1]);
+  }
+  return placement[0] + Math.abs(placement[1]);
+}
+
+export function predictSearchStateAtAdjustmentTime(
   initialState: SearchState,
   inputSequence: string,
   inputFrameTimeline: string,
@@ -278,80 +496,3 @@ function testPrediction() {
     )
   );
 }
-
-// export function futureRecomputePlacementAndAdjustments(
-//   searchState: SearchState,
-//   shouldLog: boolean,
-//   initialAiParams: InitialAiParams,
-//   paramMods: ParamMods,
-//   inputFrameTimeline: string,
-//   searchDepth: number,
-//   hypotheticalSearchDepth: number
-// ): string {
-//   const results = {};
-
-//   // Update input objects
-//   let aiParams = addTapInfoToAiParams(
-//     initialAiParams,
-//     searchState.level,
-//     inputFrameTimeline
-//   );
-//   const aiMode = getAiMode(
-//     searchState.board,
-//     searchState.lines,
-//     searchState.level,
-//     aiParams
-//   );
-//   aiParams = modifyParamsForAiMode(aiParams, aiMode, paramMods);
-
-//   for (const nextPieceId of POSSIBLE_NEXT_PIECES) {
-//     const newSearchState = { ...searchState, nextPieceId };
-//     const bestMoveThisPiece = getBestMove(
-//       newSearchState,
-//       shouldLog,
-//       initialAiParams,
-//       paramMods,
-//       inputFrameTimeline,
-//       searchDepth,
-//       hypotheticalSearchDepth
-//     );
-//     results[nextPieceId] = bestMoveThisPiece;
-//   }
-
-//   // Find the average position of all the possible adjustments
-//   let totalXOffset = 0;
-//   let totalRotation = 0;
-//   for (const nextPieceId of POSSIBLE_NEXT_PIECES) {
-//     const bestMove: PossibilityChain = results[nextPieceId];
-//     totalXOffset += bestMove.placement[1];
-//     totalRotation += bestMove.placement[0] == 3 ? -1 : bestMove.placement[0];
-//   }
-//   const averageXOffset = Math.round(totalXOffset / POSSIBLE_NEXT_PIECES.length);
-//   const averageRotation = Math.round(
-//     totalRotation / POSSIBLE_NEXT_PIECES.length
-//   );
-
-//   // Sort the possibilities by their distance from the average and choose the closest
-//   const sortedPossibilities: Array<PossibilityChain> = Object.values(
-//     results
-//   ).sort(
-//     (a: PossibilityChain, b: PossibilityChain) =>
-//       distanceFromAverage(a.placement, averageXOffset, averageRotation) -
-//       distanceFromAverage(b.placement, averageXOffset, averageRotation)
-//   ) as Array<PossibilityChain>;
-//   const defaultPlacement = sortedPossibilities[0];
-
-//   // Format the results
-//   return formatPrecomputeResult(results, defaultPlacement);
-//   // return response;
-//   // return new Promise((resolve, reject) => {
-//   //   resolve(response);
-//   // });
-// }
-
-// function distanceFromAverage(placement, averageXOffset, averageRotation) {
-//   const [rotation, xOffset] = placement;
-//   const numShiftsNeeded = Math.abs(xOffset - averageXOffset);
-//   const numRotationsNeeded = Math.abs(rotation - averageRotation);
-//   return Math.max(numShiftsNeeded, numRotationsNeeded);
-// }
