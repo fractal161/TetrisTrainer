@@ -40,8 +40,7 @@ export function simulateManyGames(
         aiParams,
         paramMods,
         INPUT_SEQUENCE_12_HZ,
-        "ZJOSLISTJZOLTIJZJZOSJSZJTZ",
-        // /* predefinedPieceSequence= */ null,
+        /* predefinedPieceSequence= */ null,
         /* shouldAdjust= */ true,
         /* isDig= */ false,
         /* onPlacementCallback= */ null,
@@ -124,7 +123,7 @@ export async function simulateGame(
     const currentPieceId = pieceSequence[pieceIndex];
     const nextPieceId = pieceSequence[pieceIndex + 1];
 
-    await sleep(1000);
+    // await sleep(1000);
 
     // Place one piece
     const searchState = {
@@ -174,7 +173,7 @@ export async function simulateGame(
     }
 
     // Maybe log per-piece stats
-    if (true) {
+    if (false) {
       console.log(`Score: ${score}, Lines: ${lines}, Level: ${level}`);
       utils.logBoard(board);
     }
@@ -243,7 +242,7 @@ function getMoveThisStep(
       aiParams,
       paramMods,
       inputFrameTimeline,
-      /* searchDepth= */ 2,
+      /* searchDepth= */ 1,
       /* hypotheticalSearchDepth= */ 1
     );
   }
