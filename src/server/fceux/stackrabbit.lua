@@ -21,8 +21,8 @@ TIMELINE_KYROS = "...X.X.X.X.X.X.X.X.X"
 -- Config constants
 SHOULD_ADJUST = true
 DEBUG = false
-REACTION_TIME_FRAMES = 25
-INPUT_TIMELINE = TIMELINE_12_HZ
+REACTION_TIME_FRAMES = 20
+INPUT_TIMELINE = TIMELINE_15_HZ
 SHOULD_RECORD_GAMES = false
 MOVIE_PATH = "C:\\Users\\Greg\\Desktop\\VODs\\" -- Where to store the fm2 VODS (absolute path)
 
@@ -391,14 +391,15 @@ end
 
 -- Colors are r,g,b,alpha for some reason???
 
-
+-- TODO: MAKE PREADJUST FLOAT
 function drawHUD()
   if gamePhase == 1 and baseSequence ~= nil and baseSequence ~= "" then
     -- gui.text(8,8, baseSequence)
-    local shift, rot, drop = getRestingPos(baseSequence)
+    startSequence = string.sub(baseSequence, 1, REACTION_TIME_FRAMES)
+    local shift, rot, drop = getRestingPos(startSequence)
     if(isFirstPiece) then drop = drop + 1 end
     drawPiece(shift,drop,orientToNum[pcur],rot)
-    drawTrajectory(baseSequence, isFirstPiece)
+    drawTrajectory(startSequence, isFirstPiece)
     -- local test = 16
 
     -- Sort each suffix
