@@ -20,10 +20,9 @@ TIMELINE_KYROS = "...X.X.X.X.X.X.X.X.X"
 
 -- Config constants
 SHOULD_ADJUST = true
-DEBUG = false
-REACTION_TIME_FRAMES = 20
-INPUT_TIMELINE = TIMELINE_15_HZ
-SHOULD_RECORD_GAMES = false
+REACTION_TIME_FRAMES = 21
+INPUT_TIMELINE = TIMELINE_12_HZ;
+SHOULD_RECORD_GAMES = true
 MOVIE_PATH = "C:\\Users\\Greg\\Desktop\\VODs\\" -- Where to store the fm2 VODS (absolute path)
 
 function resetGameScopedVariables()
@@ -135,7 +134,7 @@ function requestAdjustmentAsync()
   local requestStr = "http://localhost:3000/async-nb/" .. getEncodedBoard()
   requestStr = requestStr .. "/" .. orientToPiece[pcur] .. "/" .. orientToPiece[pnext] .. "/" .. level .. "/" .. numLines
   requestStr = requestStr .. "/" .. offsetXAtAdjustmentTime .. "/" .. offsetYAtAdjustmentTime .. "/" .. rotationAtAdjustmentTime
-  requestStr = requestStr .. "/" .. REACTION_TIME_FRAMES .. "/" .. INPUT_TIMELINE .. "/" .. tostring(canFirstFrameShiftAtAdjustmentTime)
+  requestStr = requestStr .. "/" .. REACTION_TIME_FRAMES .. "/0/" .. INPUT_TIMELINE .. "/" .. tostring(canFirstFrameShiftAtAdjustmentTime)
 
   local response = makeHttpRequest(requestStr)
   if response.code ~= 200 then
@@ -156,7 +155,7 @@ function requestPrecompute()
   end
   local requestStr = "http://localhost:3000/precompute/" .. stateForNextPiece.board
   local requestStr = requestStr .. "/" .. orientToPiece[pnext] .. "/null/" .. stateForNextPiece.level
-  local requestStr = requestStr .. "/" .. stateForNextPiece.lines .. "/0/0/0/"
+  local requestStr = requestStr .. "/" .. stateForNextPiece.lines .. "/0/0/0/0/"
   local requestStr = requestStr .. REACTION_TIME_FRAMES .. "/" .. INPUT_TIMELINE .. "/false" -- use the 'framesAlreadyElapsed' param to communicate reaction time
 
   local response = makeHttpRequest(requestStr)

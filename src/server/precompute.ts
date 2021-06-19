@@ -77,7 +77,6 @@ export class PreComputeManager {
     initialAiParams: InitialAiParams,
     paramMods: ParamMods,
     inputFrameTimeline: string,
-    reactionTimeFrames: number,
     onPartialResultCallback: Function,
     onResultCallback: Function
   ) {
@@ -105,12 +104,12 @@ export class PreComputeManager {
     }
 
     // Send a response with just the default placement in case the other computation doesn't finish
-    // const formattedResult = formatPrecomputeResult({}, this.defaultPlacement);
-    // console.log(
-    //   "Saving partial result",
-    //   formatPossibility(this.defaultPlacement)
-    // );
-    // onPartialResultCallback(formattedResult);
+    const formattedResult = formatPrecomputeResult({}, this.defaultPlacement);
+    console.log(
+      "Saving partial result",
+      formatPossibility(this.defaultPlacement)
+    );
+    onPartialResultCallback(formattedResult);
 
     // Ping all the workers to start evaluating the next piece values
     console.time("WORKER PHASE");
@@ -134,7 +133,6 @@ export class PreComputeManager {
       searchState,
       possibleMoves,
       inputFrameTimeline,
-      reactionTimeFrames
     );
     this._precompileAdjustmentMoves();
   }
@@ -145,7 +143,6 @@ export class PreComputeManager {
     initialAiParams: InitialAiParams,
     paramMods: ParamMods,
     inputFrameTimeline: string,
-    reactionTimeFrames: number,
     onPartialResultCallback: Function,
     onResultCallback: Function
   ) {
@@ -155,7 +152,7 @@ export class PreComputeManager {
     this.pendingResults = POSSIBLE_NEXT_PIECES.length;
 
     // Get initial NNB placement
-    if (reactionTimeFrames === 0) {
+    if (searchState.reactionTime === 0) {
       this.defaultPlacement = null;
     } else {
       this.defaultPlacement = getBestMove(
@@ -182,12 +179,11 @@ export class PreComputeManager {
 
     // Ping the worker threads to compute all possible adjustments
     const newSearchState =
-      reactionTimeFrames > 0
+      searchState.reactionTime > 0
         ? predictSearchStateAtAdjustmentTime(
             searchState,
             this.defaultPlacement.inputSequence,
             inputFrameTimeline,
-            reactionTimeFrames
           )
         : searchState;
 
@@ -210,7 +206,6 @@ export class PreComputeManager {
     initialSearchState: SearchState,
     possibleMoves: Array<PossibilityChain>,
     inputFrameTimeline: string,
-    reactionTimeFrames: number
   ) {
     const seenInputSequences = new Set();
     const phantomPlacements: Array<PhantomPlacement> = [];
@@ -224,7 +219,7 @@ export class PreComputeManager {
     for (const possibility of possibleMoves) {
       const newInputSequence = possibility.inputSequence.substr(
         0,
-        reactionTimeFrames
+        initialSearchState.reactionTime
       );
       if (!seenInputSequences.has(newInputSequence)) {
         // Predict the state at adjustment time and register the phantom placement
@@ -232,7 +227,6 @@ export class PreComputeManager {
           initialSearchState,
           newInputSequence,
           inputFrameTimeline,
-          reactionTimeFrames
         );
 
         // Add a new phantom placement
@@ -342,7 +336,9 @@ export class PreComputeManager {
       const responseObj = {};
       for (const pieceId of POSSIBLE_NEXT_PIECES) {
         // Figure out what adjustment you'd do for that piece
-        let maxValue = phantomPlacement.defaultPlacement.totalValue;
+        let maxValue = this.results[pieceId][
+          phantomPlacement.defaultPlacement.lockPositionEncoded
+        ];
         let maxPossibility: PossibilityChain = null;
         for (const adjPossibility of phantomPlacement.possibleAdjustmentsLookup.get(
           pieceId
@@ -352,7 +348,26 @@ export class PreComputeManager {
             // -0.1 * countInputs(adjPossibility.placement) +
             getAdjustmentInputCost(adjPossibility) +
             this.results[pieceId][adjPossibility.lockPositionEncoded];
-          if (isNaN(value)) {
+          if (
+            !this.results[pieceId].hasOwnProperty(
+              adjPossibility.lockPositionEncoded
+            )
+          ) {
+            console.log({
+              ...phantomPlacement.defaultPlacement,
+              boardAfter: null,
+            });
+            console.log({ ...adjPossibility, boardAfter: null });
+            console.log(pieceId);
+            console.log(this.results[pieceId]);
+            for (const piece in POSSIBLE_NEXT_PIECES) {
+              if (!this.results[piece]) {
+                throw new Error("No results for piece" + piece);
+              }
+              console.log(
+                piece + " " + Object.keys(this.results[piece]).length
+              );
+            }
             throw new Error(
               "Unknown lock value: " + adjPossibility.lockPositionEncoded
             );
@@ -459,15 +474,15 @@ export function predictSearchStateAtAdjustmentTime(
   initialState: SearchState,
   inputSequence: string,
   inputFrameTimeline: string,
-  reactionTimeFrames
 ) {
   let inputsPossibleByAdjTime = 0;
   let inputsUsedByAdjTime = 0;
   let offsetXAtAdjustmentTime = 0;
   let rotationAtAdjustmentTime = 0;
+  let totalActiveFrames = 0;
 
   // Loop through the frames until adjustment time
-  for (let i = 0; i < reactionTimeFrames; i++) {
+  for (let i = 0; i < initialState.reactionTime; i++) {
     if (shouldPerformInputsThisFrame(inputFrameTimeline, i)) {
       inputsPossibleByAdjTime++;
     }
@@ -487,10 +502,17 @@ export function predictSearchStateAtAdjustmentTime(
       rotationAtAdjustmentTime--;
     }
 
+    // Check for hitting the stack
+    if (isAnyOf(thisFrameStr, "*^")) {
+      break;
+    }
+
     // Track inputs used
     if (thisFrameStr !== ".") {
       inputsUsedByAdjTime++;
     }
+
+    totalActiveFrames++;
   }
 
   // Correct the rotation to be in the modulus
@@ -507,7 +529,7 @@ export function predictSearchStateAtAdjustmentTime(
 
   // Calculate the y value from gravity
   let offsetYAtAdjustmentTime = Math.floor(
-    reactionTimeFrames / GetGravity(initialState.level)
+    totalActiveFrames / GetGravity(initialState.level)
   );
 
   return {
@@ -519,7 +541,8 @@ export function predictSearchStateAtAdjustmentTime(
     existingXOffset: offsetXAtAdjustmentTime,
     existingYOffset: offsetYAtAdjustmentTime,
     existingRotation: rotationAtAdjustmentTime,
-    framesAlreadyElapsed: reactionTimeFrames,
+    framesAlreadyElapsed: initialState.reactionTime,
+    reactionTime: initialState.reactionTime,
     canFirstFrameShift: inputsUsedByAdjTime < inputsPossibleByAdjTime,
   };
 }
@@ -539,14 +562,13 @@ function testPrediction() {
         level: 18,
         lines: 0,
         framesAlreadyElapsed: 0,
+        reactionTime: 0,
         existingXOffset: 0,
         existingYOffset: 0,
         existingRotation: 0,
         canFirstFrameShift: false,
       },
       "E....E...L...L",
-      "X....X...X...X",
-      15
-    )
+      "X....X...X...X")
   );
 }

@@ -1,4 +1,4 @@
-const { performance } = require("perf_hooks");
+import { IS_DROUGHT_MODE, IS_PAL, WELL_COLUMN } from "./params";
 
 export const NUM_ROW = 20;
 export const NUM_COLUMN = 10;
@@ -18,7 +18,10 @@ export const POSSIBLE_NEXT_PIECES: Array<PieceId> = [
 ];
 
 export function GetGravity(level) {
-  const GRAVITY = {
+  if (IS_PAL) {
+    return GetGravityPAL(level);
+  }
+  const NSTC_GRAVITY = {
     0: 48,
     1: 43,
     2: 38,
@@ -42,9 +45,40 @@ export function GetGravity(level) {
     29: 1,
   };
   if (level <= 18) {
-    return GRAVITY[level];
+    return NSTC_GRAVITY[level];
   } else if (level < 29) {
     return 2;
+  } else {
+    return 1;
+  }
+}
+
+export function GetGravityPAL(level) {
+  const PAL_GRAVITY = {
+    0: 36,
+    1: 32,
+    2: 29,
+    3: 25,
+    4: 22,
+    5: 18,
+    6: 15,
+    7: 11,
+    8: 7,
+    9: 5,
+    10: 4,
+    11: 4,
+    12: 4,
+    13: 3,
+    14: 3,
+    15: 3,
+    16: 2,
+    17: 2,
+    18: 2,
+    19: 1,
+    29: 1,
+  };
+  if (level <= 18) {
+    return PAL_GRAVITY[level];
   } else {
     return 1;
   }
@@ -134,30 +168,105 @@ export function generateDigPracticeBoard(garbageHeight, numHoles) {
 }
 
 /** Returns true if the specified cell 1) exists and 2) is empty */
-function isEmptyCell(row, col, board) {
+function isEmptyCellAboveStack(row, col, board, surfaceArray) {
   if (col < 0 || col >= NUM_COLUMN || row < 0 || row >= NUM_ROW) {
     return false;
   }
-  return board[row][col] == SquareState.EMPTY;
+  return (
+    board[row][col] == SquareState.EMPTY &&
+    NUM_ROW - row - 1 === surfaceArray[col]
+  );
 }
 
 /** Detects holes that could potentially be tucked into */
-export function isTuckSetup(row, col, board, heights) {
-  if (isEmptyCell(row, col + 1, board) && isEmptyCell(row, col + 2, board)) {
-    return true;
+export function isTuckSetup(row, col, board, surfaceArray): [boolean, number] {
+  if (
+    isEmptyCellAboveStack(row, col + 1, board, surfaceArray) &&
+    isEmptyCellAboveStack(row, col + 2, board, surfaceArray)
+  ) {
+    let cellsOfSpace = 2;
+    let i = col + 3;
+    while (isEmptyCellAboveStack(row, i, board, surfaceArray)) {
+      cellsOfSpace++;
+      i++;
+    }
+    return [true, cellsOfSpace];
   }
-  if (isEmptyCell(row, col - 1, board) && isEmptyCell(row, col - 2, board)) {
-    return true;
+  if (
+    isEmptyCellAboveStack(row, col - 1, board, surfaceArray) &&
+    isEmptyCellAboveStack(row, col - 2, board, surfaceArray)
+  ) {
+    let cellsOfSpace = 2;
+    let i = col - 3;
+    while (isEmptyCellAboveStack(row, i, board, surfaceArray)) {
+      cellsOfSpace++;
+      i--;
+    }
+    return [true, cellsOfSpace];
   }
-  return false;
+  // console.log(surfaceArray.join(","), "false")
+  return [false, 0];
+}
+
+export function countHolesInColumn(
+  col: number,
+  board: Board,
+  surfaceArray: Array<number>,
+  holeCells: Set<number>,
+  isWell: boolean
+) {
+  let numHolesSeen = 0;
+  let curHoleHeight = 0;
+  let numHoles = 0;
+  for (let row = NUM_ROW - 1; row >= NUM_ROW - surfaceArray[col]; row--) {
+    if (board[row][col] === SquareState.EMPTY) {
+      curHoleHeight++;
+    } else if (curHoleHeight > 0) {
+      // Add a hole for the one we've tracked so far.
+      numHolesSeen++;
+
+      // Ignore the first hole in the well column (the well itself)
+      if (isWell && numHolesSeen === 1) {
+        curHoleHeight = 0;
+        continue;
+      }
+
+      const [tuckSetup, cellsOfSpace] = isTuckSetup(
+        row + curHoleHeight,
+        col,
+        board,
+        surfaceArray
+      );
+      if (tuckSetup) {
+        const spaceMultiplier = Math.max(0.2, 1 - 0.3 * (cellsOfSpace - 2));
+        numHoles += spaceMultiplier * curHoleHeight;
+        // console.log(col, surfaceArray.join(","), numHoles, curHoleHeight);
+      }
+
+      // Penalize taller holes more, except in the well column
+      else if (curHoleHeight === 1 || isWell) {
+        numHoles += 1;
+      } else if (curHoleHeight === 2) {
+        numHoles += 2;
+      } else {
+        numHoles += 4;
+      }
+
+      for (let r = 1; r <= curHoleHeight; r++) {
+        holeCells.add((row + r) * 10 + col);
+      }
+      curHoleHeight = 0;
+    }
+  }
+  return numHoles;
 }
 
 export function getSurfaceArrayAndHoles(
   board: Board
-): [Array<number>, number, Array<CellLocation>] {
+): [Array<number>, number, Set<number>] {
   const heights = [];
   let numHoles = 0;
-  let holeCells: Array<CellLocation> = [];
+  let holeCells: Set<number> = new Set();
 
   // Get the column heights first
   for (let col = 0; col < NUM_COLUMN; col++) {
@@ -168,34 +277,18 @@ export function getSurfaceArrayAndHoles(
     heights.push(20 - row);
   }
   // Then look for holes
+  // TODO: Handle delayed tuck setups
   for (let col = 0; col < NUM_COLUMN; col++) {
-    let row = 20 - heights[col];
-    while (row < NUM_ROW - 1) {
-      row++;
-      if (board[row][col] === SquareState.EMPTY && col < NUM_COLUMN - 1) {
-        // if (isTuckSetup(row, col, board, heights)) {
-        //   numHoles += 0.8;
-        //   holeCells.push([row, col]);
-        //   while (row < NUM_ROW && board[row][col] === SquareState.EMPTY) {
-        //     numHoles += 0.2;
-        //     holeCells.push([row, col]);
-        //     row++;
-        //   }
-        //   break;
-        // }
-
-        // Add a hole if it's anywhere other than column 10
-        numHoles++;
-        holeCells.push([row, col]);
-        row++;
-        // Add fractional holes for subsequent cells within a tall hole
-        while (row < NUM_ROW && board[row][col] === SquareState.EMPTY) {
-          numHoles += 0.2;
-          holeCells.push([row, col]);
-          row++;
-        }
-      }
+    if (col === WELL_COLUMN) {
+      continue;
     }
+    numHoles += countHolesInColumn(
+      col,
+      board,
+      heights,
+      holeCells,
+      /* isWell= */ false
+    );
   }
   return [heights, numHoles, holeCells];
 }
@@ -248,18 +341,22 @@ export function getLineCountOfFirstTransition(startingLevel) {
  * NOTE: This assumes level 18, 19, or 29 starts.
  */
 export function getLevelAfterLineClears(level, lines, numLinesCleared) {
-  // Once you go killscreen you never go back
-  if (level >= 29) {
+  // If it hasn't reached transition, it can't go up in level
+  if (level == 18 && lines < 126) {
+    return 18;
+  }
+  if (level == 19 && lines < 136) {
+    return 19;
+  }
+  if (level == 29 && lines < 196) {
     return 29;
   }
-  const newLineCount = lines + numLinesCleared;
-  if (newLineCount < 130) {
-    return Math.max(level, 18);
-  } else if (newLineCount < 230) {
-    return 19 + Math.floor((newLineCount - 130) / 10);
-  } else {
-    return 29;
+
+  // Otherwise it goes up every time you cross a multiple of 10
+  if ((lines % 10) + numLinesCleared >= 10) {
+    return level + 1;
   }
+  return level;
 }
 
 export function parseBoard(boardStr: string): Board {
@@ -273,7 +370,19 @@ export function getScareHeight(level: number, aiParams: AiParams) {
     throw new Error("No tap heights calculated when looking up scare height");
   }
   const max5TapHeight = aiParams.MAX_5_TAP_LOOKUP[level];
-  return Math.max(0, max5TapHeight + aiParams.SCARE_HEIGHT_OFFSET);
+  let offset;
+  if (max5TapHeight <= 4) {
+    offset = -1;
+  } else if (max5TapHeight <= 6) {
+    offset = -2;
+  } else if (max5TapHeight <= 10) {
+    offset = -3;
+  } else if (max5TapHeight <= 12) {
+    offset = -4;
+  } else {
+    offset = -5;
+  }
+  return Math.max(0, max5TapHeight + offset);
 }
 
 export function logBoard(board) {
@@ -333,6 +442,10 @@ const performanceStartTimes = {};
 const startupWait = 2;
 
 export function startTiming(id: string) {
+  // Load this dynamically so the web UI doesn't need to require it
+  if (performance == null) {
+    performance = require("perf_hooks").performance;
+  }
   performanceStartTimes[id] = performance.now();
   if (!performanceCounts[id]) {
     performanceCounts[id] = 0;

@@ -1,4 +1,4 @@
-import { PIECE_LOOKUP } from "../../built/src/tetrominoes";
+import { PIECE_LOOKUP } from "../../src/web_client/tetrominoes";
 import {
   generateInputSequence,
   getBoardAndLinesClearedAfterPlacement,
@@ -7,6 +7,7 @@ import {
   _validateIntParam,
 } from "./board_helper";
 import { searchForTucksOrSpins } from "./dfs";
+import { CAN_TUCK } from "./params";
 import {
   GetGravity,
   getSurfaceArrayAndHoles,
@@ -60,6 +61,15 @@ export function getPossibleMoves(
     existingRotation,
     canFirstFrameShift,
   };
+  if (shouldLog)
+    logBoard(
+      getBoardAndLinesClearedAfterPlacement(
+        startingBoard,
+        rotationsList[existingRotation],
+        initialX,
+        initialY
+      )[0]
+    );
 
   const legalPlacementSimStates: Array<SimState> = [];
 
@@ -103,6 +113,10 @@ export function getPossibleMoves(
     lockHeightLookup,
     potentialTuckSpinStates,
   ] = exploreLegalPlacementsUntilLock(legalPlacementSimStates, simParams);
+
+  if (!CAN_TUCK) {
+    return basicPossibilities;
+  }
 
   const tuckSpinPossibilites = searchForTucksOrSpins(
     potentialTuckSpinStates,
@@ -321,8 +335,38 @@ function explorePlacementsHorizontally(
   return { rangesLeft, rangesRight };
 }
 
+export function getPieceRanges(
+  board: Board,
+  level: number,
+  pieceId: PieceId,
+  rotationIndex: number,
+  inputFrameTimeline: string
+) {
+  if (!inputFrameTimeline) {
+    throw new Error("Unknown input timeline when checking placement");
+  }
+  const gravity = GetGravity(level); // 0-indexed, executes on the 0 frame. e.g. 2... 1... 0(shift).. 2... 1... 0(shift)
+  const rotationsList = PIECE_LOOKUP[pieceId as string][0];
+  const simParams: SimParams = {
+    board,
+    initialX: 3,
+    initialY: pieceId === "I" ? -2 : -1,
+    framesAlreadyElapsed: 0,
+    gravity,
+    rotationsList,
+    pieceId,
+    existingRotation: 0,
+    inputFrameTimeline,
+    canFirstFrameShift: false, // This param is only relevant for adjustments
+  };
+  return [
+    repeatedlyShiftPiece(-1, rotationIndex, simParams, []),
+    repeatedlyShiftPiece(1, rotationIndex, simParams, []),
+  ];
+}
+
 /**
- * Helper function for getPieceRanges that shifts a hypothetical piece as many times as it can in
+ * Helper function that shifts a hypothetical piece as many times as it can in
  * each direction, before it hits the stack or the edge of the screen.
  */
 function repeatedlyShiftPiece(
@@ -373,31 +417,40 @@ function repeatedlyShiftPiece(
       simState.arrFrameIndex
     );
     const isGravityFrame = simState.frameIndex % gravity === gravity - 1; // Returns true every Nth frame, where N = gravity
+    let addNewPlacement = false;
 
     if (isInputFrame) {
-      const inputsSucceeded = performSimulationShift(
+      // Try the shift input, then the rotation input
+      const shiftSucceeded = performSimulationShift(
         shiftIncrement,
         simState,
         board,
         rotationsList[simState.rotationIndex]
       );
-      if (!inputsSucceeded) {
+      if (!shiftSucceeded) {
         return rangeCurrent;
       }
-    }
-
-    if (isInputFrame) {
-      const inputSucceeded = performSimulationRotation(
+      const rotationSucceeded = performSimulationRotation(
         goalRotationIndex,
         simState,
         board,
         rotationsList
       );
-      if (!inputSucceeded) {
+      if (!rotationSucceeded) {
         return rangeCurrent;
       }
+
       // If both the input and the rotations went through, we're good
       rangeCurrent += shiftIncrement;
+
+      // If we just shifted and are in the intended rotation, then this is a legal placement
+      if (
+        legalPlacementSimStates !== null &&
+        isInputFrame &&
+        simState.rotationIndex === goalRotationIndex
+      ) {
+        addNewPlacement = true;
+      }
     }
 
     if (isGravityFrame) {
@@ -429,11 +482,7 @@ function repeatedlyShiftPiece(
     simState.arrFrameIndex += 1;
 
     // If we just shifted and are in the intended rotation, then this is a legal placement
-    if (
-      legalPlacementSimStates !== null &&
-      isInputFrame &&
-      simState.rotationIndex === goalRotationIndex
-    ) {
+    if (addNewPlacement) {
       legalPlacementSimStates.push({ ...simState });
     }
   }

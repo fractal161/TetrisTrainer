@@ -1,4 +1,4 @@
-import { PIECE_LOOKUP } from "../../built/src/tetrominoes";
+import { PIECE_LOOKUP } from "../../src/web_client/tetrominoes";
 import { getTestBoardWithHeight } from "./board_helper";
 import {
   canDoPlacement,
@@ -262,9 +262,9 @@ function speedTest(x) {
 
 // MAIN
 
-for (let i = 0; i < 20; i++) {
-  speedTest(4);
-}
+// for (let i = 0; i < 20; i++) {
+//   speedTest(4);
+// }
 tapRangeTest();
 lastMinuteRotationsTest();
 legalMovesTest();

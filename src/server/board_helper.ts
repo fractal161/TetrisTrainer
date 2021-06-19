@@ -1,6 +1,5 @@
 import { canDoPlacement, placementIsLegal } from "./move_search";
 
-const PIECE_LOOKUP = require("../tetrominoes").PIECE_LOOKUP;
 const utils = require("./utils");
 const NUM_COLUMN = utils.NUM_COLUMN;
 const NUM_ROW = utils.NUM_ROW;
@@ -47,7 +46,7 @@ export function pieceCollision(
  * @returns the number of lines cleared
  */
 function clearLines(board: Board) {
-  let fullLines = [];
+  let numLinesCleared = 0;
   for (let r = 0; r < NUM_ROW; r++) {
     let isRowFull = true;
     for (let c = 0; c < NUM_COLUMN; c++) {
@@ -57,22 +56,12 @@ function clearLines(board: Board) {
       }
     }
     if (isRowFull) {
-      fullLines.push(r);
+      board.splice(r, 1);
+      board.unshift([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+      numLinesCleared++;
     }
   }
-  for (const r of fullLines) {
-    // Move down all the rows above it
-    for (let y = r; y >= 1; y--) {
-      for (let c = 0; c < NUM_COLUMN; c++) {
-        board[y][c] = board[y - 1][c];
-      }
-    }
-    // Clear out the very top row (newly shifted into the screen)
-    for (let c = 0; c < NUM_COLUMN; c++) {
-      board[0][c] = SquareState.EMPTY;
-    }
-  }
-  return fullLines.length;
+  return numLinesCleared;
 }
 
 export function getBoardAndLinesClearedAfterPlacement(
@@ -80,7 +69,7 @@ export function getBoardAndLinesClearedAfterPlacement(
   currentRotationPiece: PieceArray,
   x: number,
   y: number
-) {
+): [Board, number] {
   let tempBoard = utils.cloneBoard(board);
   for (let r = 0; r < currentRotationPiece.length; r++) {
     for (let c = 0; c < currentRotationPiece[r].length; c++) {
@@ -235,7 +224,7 @@ export function getRelativeLeftSurface(board: Board, max4TapHeight) {
   let col3 = getBoardHeightAtColumn(board, 2);
 
   const surfaceLevelAboveFloor = Math.min(col1, col2, col3);
-  const avgHeightOfLeft = (col1 + col2 + col3) / 3;
+  const avgHeightOfLeft = (col1 + col2) / 2;
 
   // Adjust for transposed surfaces
   col1 = Math.min(maxHeight, col1 - surfaceLevelAboveFloor);
@@ -244,12 +233,10 @@ export function getRelativeLeftSurface(board: Board, max4TapHeight) {
 
   // Get the height of the rest of the columns
   let totalHeightOfMiddle = 0;
-  for (let i = 3; i < 8; i++) {
+  for (let i = 2; i < NUM_COLUMN; i++) {
     totalHeightOfMiddle += getColHeight(i);
   }
-  totalHeightOfMiddle += 1 * (getColHeight(8) + getColHeight(9));
-
-  const avgHeightOfMiddle = totalHeightOfMiddle / 7;
+  const avgHeightOfMiddle = totalHeightOfMiddle / 8;
   const heightDiff = Math.max(
     -1 * maxHeight,
     avgHeightOfLeft - avgHeightOfMiddle
@@ -295,7 +282,8 @@ export function boardHasInaccessibileLeft(
   const col2Height = surfaceArray[1];
   const col3Height = surfaceArray[2];
 
-  const avgHeightOfMiddle = surfaceArray.slice(3).reduce((x, y) => x + y) / 7;
+  const avgHeightOfMiddle =
+    surfaceArray.slice(3, 7).reduce((x, y) => x + y) / 4;
 
   if (aiMode === AiMode.KILLSCREEN) {
     // On killscreen, we mainly access the left with 4-taps. So we need either
@@ -324,11 +312,13 @@ export function boardHasInaccessibileLeft(
   // 2) access to the left with a 5 tap
   if (
     col1Height >= col2Height &&
-    col1Height > aiParams.MAX_5_TAP_LOOKUP[level]
+    col1Height > aiParams.MAX_5_TAP_LOOKUP[level] &&
+    col1Height >= avgHeightOfMiddle
   ) {
     return false;
   }
   // If an L can reach the left, then we're fine
+  // Observe that other 4-tap cases, like O & J are covered in the previous case
   if (
     col1Height === col2Height - 1 &&
     col2Height == col3Height &&
@@ -339,8 +329,8 @@ export function boardHasInaccessibileLeft(
   return !canDoPlacement(
     board,
     level,
-    "I",
-    1,
+    "T",
+    3,
     -5,
     aiParams.INPUT_FRAME_TIMELINE
   );
